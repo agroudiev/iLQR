@@ -1,0 +1,16 @@
+[package]
+name = "ilqr"
+version = "0.1.0"
+edition = "2021"
+authors = ["Antoine Groudiev <antoine.groudiev@ens.psl.eu>", "Gabriel Desfrene <gabriel.desfrene@ens.psl.eu>"]
+readme = "README.md"
+description = "An implementation of the Iterative Linear Quadratic Regulator (iLQR) method to control nonlinear dynamical systems"
+repository = "https://github.com/Red-Rapious/iLQR"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "ilqr"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = "0.23.1"
