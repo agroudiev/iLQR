@@ -6,15 +6,13 @@ use pyo3::pyclass;
 #[derive(Debug)]
 pub struct ILQRSolver {
     /// Dimension of the state space
-    state_dim: usize,
+    pub state_dim: usize,
     /// Dimension of the control space
-    control_dim: usize,
-    // /// Compute the next state given the current state and control
-    // dynamics: std::sync::Arc<dyn Fn(&[f64], &[f64]) -> Vec<f64>>,
+    pub control_dim: usize,
     /// State cost matrix
-    Q: DMatrix<f64>,
+    pub Q: DMatrix<f64>,
     /// Control cost matrix
-    R: DMatrix<f64>,
+    pub R: DMatrix<f64>,
 }
 
 impl ILQRSolver {
@@ -59,7 +57,7 @@ impl ILQRSolver {
     /// * `us` - The control sequence
     ///
     /// Returns: a tuple containing the states and loss
-    pub fn forward(&self, x: DVector<f64>, us: Vec<DVector<f64>>) -> (Vec<DMatrix<f64>>, f64) {
+    fn forward(&self, x: DVector<f64>, us: Vec<DVector<f64>>) -> (Vec<DMatrix<f64>>, f64) {
         unimplemented!()
     }
 
@@ -70,12 +68,23 @@ impl ILQRSolver {
     /// * `target` - The target state
     ///
     /// Returns: a tuple containing the control gains and the forcing gains
-    pub fn backward(
+    fn backward(
         &self,
         x: DVector<f64>,
         us: Vec<DVector<f64>>,
         target: DVector<f64>,
     ) -> (Vec<DMatrix<f64>>, Vec<DMatrix<f64>>) {
+        unimplemented!()
+    }
+
+    /// Solve the ILQR problem from a given initial state `x0` and target `target`
+    /// 
+    /// * `x0` - The initial state
+    /// * `target` - The target state
+    /// * `dynamics` - The dynamics function, that computes the next state given the current state `x` and control `u`
+    /// 
+    /// Returns: the sequence of controls
+    pub fn solve(&self, x0: DVector<f64>, target: DVector<f64>, dynamics: impl Fn(&[f64], &[f64]) -> Vec<f64>) -> Vec<DVector<f64>> {
         unimplemented!()
     }
 }
