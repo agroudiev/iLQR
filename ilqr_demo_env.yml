@@ -1,0 +1,14 @@
+name: ilqr_demo
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - numpy
+  - pinocchio
+  - meshcat-python
+  - jupyterlab
+  - ipywidgets
+  - matplotlib
+  - scipy
+  - pip
