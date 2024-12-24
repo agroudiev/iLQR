@@ -16,12 +16,40 @@ pub struct PyILQRSolver {
 #[allow(non_snake_case)]
 impl PyILQRSolver {
     #[new]
-    fn new(state_dim: usize, control_dim: usize, Q: Vec<Vec<f64>>, R: Vec<Vec<f64>>) -> Self {
+    fn new(
+        state_dim: usize,
+        control_dim: usize,
+        Q: Vec<Vec<f64>>,
+        Qf: Vec<Vec<f64>>,
+        R: Vec<Vec<f64>>,
+    ) -> Self {
+        assert!(Q.len() == state_dim, "Invalid state cost matrix dimension");
+        assert!(
+            Q[0].len() == state_dim,
+            "Invalid state cost matrix dimension"
+        );
+        assert!(
+            Qf.len() == state_dim,
+            "Invalid final state cost matrix dimension"
+        );
+        assert!(
+            Qf[0].len() == state_dim,
+            "Invalid final state cost matrix dimension"
+        );
+        assert!(
+            R.len() == control_dim,
+            "Invalid control cost matrix dimension"
+        );
+        assert!(
+            R[0].len() == control_dim,
+            "Invalid control cost matrix dimension"
+        );
         Self {
             solver: ILQRSolver::new(
                 state_dim,
                 control_dim,
                 DMatrix::from_row_slice(Q.len(), Q[0].len(), &Q.concat()),
+                DMatrix::from_row_slice(Qf.len(), Qf[0].len(), &Qf.concat()),
                 DMatrix::from_row_slice(R.len(), R[0].len(), &R.concat()),
             ),
         }
@@ -43,6 +71,7 @@ impl PyILQRSolver {
             target.len() == self.solver.state_dim,
             "Invalid target dimension"
         );
+        assert!(time_steps > 0, "Time steps must non-zero");
         let max_iterations = max_iterations.unwrap_or(100);
         let convergence_threshold = convergence_threshold.unwrap_or(1e-2);
 

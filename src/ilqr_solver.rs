@@ -1,6 +1,8 @@
 use nalgebra::{DMatrix, DVector};
 use pyo3::pyclass;
 
+const EPSILON: f64 = 1e-5;
+
 #[allow(non_snake_case)]
 #[pyclass]
 #[derive(Debug)]
@@ -11,6 +13,8 @@ pub struct ILQRSolver {
     pub control_dim: usize,
     /// State cost matrix
     pub Q: DMatrix<f64>,
+    /// Final state cost matrix
+    pub Qf: DMatrix<f64>,
     /// Control cost matrix
     pub R: DMatrix<f64>,
 }
@@ -27,31 +31,68 @@ impl ILQRSolver {
     pub fn new(
         state_dim: usize,
         control_dim: usize,
-        // dynamics: impl Fn(&[f64], &[f64]) -> Vec<f64>,
         Q: DMatrix<f64>,
+        Qf: DMatrix<f64>,
         R: DMatrix<f64>,
     ) -> Self {
         Self {
             state_dim,
             control_dim,
-            // dynamics,
             Q,
+            Qf,
             R,
         }
     }
 
     /// Computes the Jacobians of the dynamics with respect to the state and control,
-    /// at state `x` and control `u`
+    /// at state `x` and control `u`. Uses the finite difference method.
     ///
+    /// * `f` - The function to linearize (dynamics)
     /// * `x` - The current state
     /// * `u` - The control
     ///
     /// Returns: `(A, B)` where A = ∂f/∂x and B = ∂f/∂u at `(x, u)`
-    fn linearize_dynamics(&self, x: DVector<f64>, u: DVector<f64>) -> (DMatrix<f64>, DMatrix<f64>) {
-        unimplemented!()
+    fn jacobians(
+        &self,
+        f: impl Fn(&[f64], &[f64]) -> DVector<f64>,
+        x: DVector<f64>,
+        u: DVector<f64>,
+    ) -> (DMatrix<f64>, DMatrix<f64>) {
+        #[allow(non_snake_case)]
+        let mut A = DMatrix::zeros(self.state_dim, self.state_dim);
+        #[allow(non_snake_case)]
+        let mut B = DMatrix::zeros(self.state_dim, self.control_dim);
+
+        for i in 0..self.state_dim {
+            let mut xpdx = x.clone();
+            xpdx[i] += EPSILON;
+            let mut xmdx = x.clone();
+            xmdx[i] -= EPSILON;
+
+            let f_xpdx = f(xpdx.as_slice(), u.as_slice());
+            let f_xmdx = f(xmdx.as_slice(), u.as_slice());
+
+            let df_dx = (f_xpdx - f_xmdx) / (2.0 * EPSILON);
+            A.set_column(i, &df_dx);
+        }
+
+        for i in 0..self.control_dim {
+            let mut updu = u.clone();
+            updu[i] += EPSILON;
+            let mut umdu = u.clone();
+            umdu[i] -= EPSILON;
+
+            let f_updu = f(x.as_slice(), updu.as_slice());
+            let f_umdu = f(x.as_slice(), umdu.as_slice());
+
+            let df_du = (f_updu - f_umdu) / (2.0 * EPSILON);
+            B.set_column(i, &df_du);
+        }
+
+        (A, B)
     }
 
-    /// Computes the forward pass from a given state `x`, controls `us`, and a `target`
+    /// Computes the LQR forward pass from a given state `x`, controls `us`, and a `target`
     ///
     /// * `x` - The current state
     /// * `us` - The control sequence
@@ -63,24 +104,77 @@ impl ILQRSolver {
         x: &DVector<f64>,
         us: &Vec<DVector<f64>>,
         target: &DVector<f64>,
+        dynamics: impl Fn(&[f64], &[f64]) -> DVector<f64>,
     ) -> (Vec<DVector<f64>>, f64) {
-        unimplemented!()
+        let mut x = x.clone();
+        let mut xs = vec![x.clone()];
+        let mut loss = 0.0;
+
+        for u in us {
+            x = dynamics(x.as_slice(), u.as_slice());
+            let delta = &x - target;
+            loss += ((delta.transpose() * &self.Q).dot(&delta)) + (&u.transpose() * &self.R).dot(&u);
+            xs.push(x.clone());
+        }
+
+        let delta = &x - target;
+        loss += (delta.transpose() * &self.Qf).dot(&delta);
+
+        (xs, loss)
     }
 
-    /// Computes the backward pass from a given state `x`, controls `us`, and a `target`
+    /// Computes the LQR backward pass given the states `xs`, controls `us`, and a `target`
     ///
     /// * `x` - The current state
     /// * `us` - The control sequence
     /// * `target` - The target state
+    /// * `dynamics` - The dynamics function
     ///
     /// Returns: a tuple `(Ks, ds)` containing the control gains and the forcing gains
+    #[allow(non_snake_case)]
     fn backward(
         &self,
         xs: &Vec<DVector<f64>>,
         us: &Vec<DVector<f64>>,
         target: &DVector<f64>,
-    ) -> (Vec<DMatrix<f64>>, Vec<DMatrix<f64>>) {
-        unimplemented!()
+        dynamics: impl Fn(&[f64], &[f64]) -> DVector<f64>,
+    ) -> (Vec<DMatrix<f64>>, Vec<DVector<f64>>) {
+        let mut Ks = vec![DMatrix::zeros(self.control_dim, self.state_dim); xs.len()];
+        let mut ds = vec![DVector::zeros(self.control_dim); xs.len()];
+
+        let mut s = self.Qf.clone() * (xs.last().unwrap() - target);
+        let mut S = self.Qf.clone();
+
+        for i in (0..xs.len()).rev() {
+            let x = &xs[i];
+            let u = &us[i];
+
+            let (A, B) = self.jacobians(&dynamics, x.clone(), u.clone());
+
+            let Qx = &self.Q * &(x - target) + (&s.transpose() * &A).transpose();
+            let Qu = &self.R * u + &s.transpose() * &B;
+
+            let Qxx = &self.Q + A.transpose() * &S * &A;
+            let Quu = &self.R + B.transpose() * &S * &B;
+            let Qux = &B.transpose() * &S * &A;
+
+            let Quu_inv = &Quu.clone().try_inverse().unwrap();
+
+            Ks[i] = -Quu_inv * &Qux;
+            ds[i] = -Quu_inv * &Qu;
+
+            s = Qx;
+            s += Ks[i].transpose() * &Quu * &ds[i];
+            s += Ks[i].transpose() * Qu;
+            s += Qux.transpose() * &ds[i];
+
+            S = Qxx;
+            S += Ks[i].transpose() * &Quu * &Ks[i];
+            S += Ks[i].transpose() * &Qux;
+            S += Qux.transpose() * &Ks[i];
+        }
+
+        (Ks, ds)
     }
 
     /// Solves the ILQR problem from a given initial state `x0` and target `target`
@@ -105,10 +199,10 @@ impl ILQRSolver {
 
         for _ in 0..max_iterations {
             // Forward pass
-            let (mut xs, _loss) = self.forward(&x0, &us, &target);
+            let (mut xs, _loss) = self.forward(&x0, &us, &target, &dynamics);
             // Backward pass
             #[allow(non_snake_case)]
-            let (Ks, ds) = self.backward(&xs, &us, &target);
+            let (Ks, ds) = self.backward(&xs, &us, &target, &dynamics);
 
             // Update the controls
             let mut x = x0.clone();
