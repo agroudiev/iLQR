@@ -113,12 +113,12 @@ impl ILQRSolver {
         for u in us {
             x = dynamics(x.as_slice(), u.as_slice());
             let delta = &x - target;
-            loss += ((delta.transpose() * &self.Q).dot(&delta)) + (&u.transpose() * &self.R).dot(&u);
+            loss += ((delta.transpose() * &self.Q).dot(&delta.transpose())) + (&u.transpose() * &self.R).dot(&u);
             xs.push(x.clone());
         }
 
         let delta = &x - target;
-        loss += (delta.transpose() * &self.Qf).dot(&delta);
+        loss += (delta.transpose() * &self.Qf).dot(&delta.transpose());
 
         (xs, loss)
     }
@@ -145,7 +145,7 @@ impl ILQRSolver {
         let mut s = self.Qf.clone() * (xs.last().unwrap() - target);
         let mut S = self.Qf.clone();
 
-        for i in (0..xs.len()).rev() {
+        for i in (0..xs.len()-1).rev() {
             let x = &xs[i];
             let u = &us[i];
 
@@ -227,5 +227,32 @@ impl ILQRSolver {
         }
 
         us
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn test_ilqr_solver() {
+        let state_dim = 2;
+        let control_dim = 1;
+        let Q = DMatrix::identity(2, 2);
+        let Qf = DMatrix::identity(2, 2);
+        let R = DMatrix::identity(1, 1);
+
+        let solver = ILQRSolver::new(state_dim, control_dim, Q, Qf, R);
+
+        let x0 = DVector::zeros(2);
+        let target = DVector::from_element(2, 1.0);
+
+        let dynamics = |x: &[f64], u: &[f64]| {
+            DVector::from_row_slice(&[x[0] + x[1] + u[0], x[1] + u[0]])
+        };
+
+        let _ = solver.solve(x0, target, dynamics, 10, 100, 1e-2);
     }
 }
