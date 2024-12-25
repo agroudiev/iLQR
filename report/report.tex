@@ -9,9 +9,9 @@
 \end{abstract}
 
 \section{Problem statement}
-\subsection{General formulation}
 The Iterative Linear Quadratic Regulator (iLQR) is a \emph{trajectory optimization} method for discrete, nonlinear, and finite-horizon optimal control problems. It is an extension of the Linear Quadratic Regulator (LQR) algorithm, which is used to solve optimal control problems for linear systems with quadratic cost functions.
 
+\subsection{General formulation}
 Consider a discrete system described by a dynamics function:
 \begin{equation*}
     x_{t+1} = f(x_t, u_t)
@@ -20,7 +20,7 @@ meaning that we can compute the state $x_{t+1}$ at time $t+1$ given the state $x
 \begin{equation*}
     J = \frac{1}{2}(x_T-x^*)^\tp Q_f (x_T-x^*) + \sum_{t=0}^{T-1} x_t^\tp Q x_t + u_t^\tp R u_t
 \end{equation*}
-where $Q_f$ is the final state cost matrix, $Q$ the state cost matrix, and $R$ the control cost matrix, all of them being positive semi-definite.
+where $Q_f$ is the final state cost matrix, $Q$ the state cost matrix, and $R$ the control cost matrix, all of them being positive semi-definite. Note that this restriction to quadratic functions is not a major limitation, as many cost functions are quadratic in practice, or can be approximated as such.
 
 \subsection{Example: the inverted pendulum}
 Consider a simple pendulum, where we denote $x = (\theta, \dot{\theta})$ the state of the system, with $\theta$ the angle between the pendulum and the vertical axis, and $\dot{\theta}$ its angular velocity. The dynamics of the system are given by physical laws, and can be seen as a black-box function implemented in a simulator. We can use the following cost function to stabilize the pendulum in the upright position:
@@ -30,17 +30,22 @@ Consider a simple pendulum, where we denote $x = (\theta, \dot{\theta})$ the sta
 with $r=10^{-5}$. This corresponds to $Q_f = I_2$, $Q=O_2$, and $R=rI_1$. Such a cost function will penalize large angles and velocities, while minimizing the control effort (the integral term), with a weight $r$ to balance the two objectives.
 
 \section{The iLQR algorithm}
-\subsection{Overview}
+% \subsection{Overview}
 The iLQR iteratively refines a trajectory $(x_t, u_t)$ by linearizing the dynamics around the current trajectory, and solving a sequence of LQR problems to find the optimal control inputs. The equation $x_{t+1} = f(x_t, u_t)$ is linearized as:
 \begin{equation*}
     \delta x_{t+1} = A_t \delta x_t + B_t \delta u_t
 \end{equation*}
 where $A_t$ (resp. $B_t$) is the Jacobian of $f$ with respect to $x$ (resp. $u$) evaluated at $(x_t, u_t)$. In practice, such Jacobians can be provided by the simulator, or approximated using finite differences.
 
-\subsection{Backward update}
-\subsection{Forward update}
+The iLQR procedures iterates between the following three steps until convergence:
+\begin{enumerate}
+    \item A \emph{forward pass}, in which we compute the successive states $(x_t)$ for the current controls $(u_t)$, and the corresponding cost $J$.
+    \item A \emph{backward pass}, in which we compute the gains, i.e. how much we should change the controls in each direction to minimize the cost.
+    \item A \emph{forward rollout}, in which we apply the gains to the controls to obtain a new trajectory.
+\end{enumerate}
+
 \section{Implementation}
-We implemented the iLQR algorithm in \href{https://www.rust-lang.org/}{\texttt{Rust}}, a systems programming language known for its performance and safety guarantees. The core of the algorithm is implemented in \texttt{Rust}, while the \texttt{Python} bindings are generated with the help of the \href{https://pyo3.rs/v0.23.3/}{\texttt{pyo3}} library, allowing its use alongside Pinocchio, a \texttt{C++} library for rigid body dynamics. The code is available on GitHub: \href{https://github.com/Red-Rapious/iLQR}{\texttt{https://github.com/Red-Rapious/iLQR}}.
+We implemented the iLQR algorithm in \href{https://www.rust-lang.org/}{\texttt{Rust}}, a systems programming language known for its performance and safety guarantees. The core of the algorithm is implemented in \texttt{Rust}, while the \texttt{Python} bindings are generated with the help of the \href{https://pyo3.rs/v0.23.3/}{\texttt{pyo3}} library, allowing its use alongside Pinocchio, a \texttt{C++} library for rigid body dynamics. The code is available on GitHub: \href{https://github.com/Red-Rapious/iLQR}{\texttt{https://github.com/Red-Rapious/iLQR}}, and includes several examples of problems.
 
 \section{Results}
 
