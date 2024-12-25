@@ -20,6 +20,6 @@ pip install maturin
 ```
 To build the Rust code and install it directly as a Python package in the current `ilqr_demo` virtual environment, run:
 ```bash
-maturin develop
+maturin develop --release
 ```
-You can then take a look at the code demos in the [`python/examples`](python/examples/) directory.
+You can then take a look at the code demos in the [`python/examples`](python/examples/) directory. Be sure to select the correct virtual environment before running the demos.
