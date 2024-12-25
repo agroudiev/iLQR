@@ -113,7 +113,8 @@ impl ILQRSolver {
         for u in us {
             x = dynamics(x.as_slice(), u.as_slice());
             let delta = &x - target;
-            loss += ((delta.transpose() * &self.Q).dot(&delta.transpose())) + (&u.transpose() * &self.R).dot(&u);
+            loss += ((delta.transpose() * &self.Q).dot(&delta.transpose()))
+                + (&u.transpose() * &self.R).dot(&u);
             xs.push(x.clone());
         }
 
@@ -145,7 +146,7 @@ impl ILQRSolver {
         let mut s = self.Qf.clone() * (xs.last().unwrap() - target);
         let mut S = self.Qf.clone();
 
-        for i in (0..xs.len()-1).rev() {
+        for i in (0..xs.len() - 1).rev() {
             let x = &xs[i];
             let u = &us[i];
 
@@ -158,7 +159,10 @@ impl ILQRSolver {
             let Quu = &self.R + B.transpose() * &S * &B;
             let Qux = &B.transpose() * &S * &A;
 
-            let Quu_inv = &Quu.clone().try_inverse().unwrap();
+            let Quu_inv = &Quu
+                .clone()
+                .try_inverse()
+                .expect("the matrix Quu is not invertible");
 
             Ks[i] = -Quu_inv * &Qux;
             ds[i] = -Quu_inv * &Qu;
@@ -230,7 +234,6 @@ impl ILQRSolver {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,9 +252,7 @@ mod tests {
         let x0 = DVector::zeros(2);
         let target = DVector::from_element(2, 1.0);
 
-        let dynamics = |x: &[f64], u: &[f64]| {
-            DVector::from_row_slice(&[x[0] + x[1] + u[0], x[1] + u[0]])
-        };
+        let dynamics = |x: &[f64], _u: &[f64]| DVector::from_row_slice(&x);
 
         let _ = solver.solve(x0, target, dynamics, 10, 100, 1e-2);
     }

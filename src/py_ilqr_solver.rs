@@ -66,7 +66,12 @@ impl PyILQRSolver {
         convergence_threshold: Option<f64>,
     ) -> Vec<Vec<f64>> {
         // Check the input dimensions
-        assert!(x0.len() == self.solver.state_dim, "Invalid state dimension");
+        assert!(
+            x0.len() == self.solver.state_dim,
+            "Invalid initial state dimension; expected {} but got {}",
+            self.solver.state_dim,
+            x0.len()
+        );
         assert!(
             target.len() == self.solver.state_dim,
             "Invalid target dimension"

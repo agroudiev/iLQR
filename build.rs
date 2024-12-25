@@ -1,6 +1,7 @@
 use std::process::Command;
-pub fn main(){
-    let python_inline_script = "from distutils import sysconfig;print(sysconfig.get_config_var('LIBDIR'))";
+pub fn main() {
+    let python_inline_script =
+        "from distutils import sysconfig;print(sysconfig.get_config_var('LIBDIR'))";
     let output = Command::new("python")
         .arg("-c")
         .arg(python_inline_script)
