@@ -63,9 +63,9 @@ impl PyILQRSolver {
     }
 
     #[pyo3(signature = (x0, target, dynamics, time_steps, max_iterations=None, convergence_threshold=None))]
-    fn solve<'py>(
+    fn solve(
         &self,
-        py: Python<'py>,
+        py: Python<'_>,
         x0: Bound<PyAny>,
         target: Bound<PyAny>,
         dynamics: Bound<'_, PyAny>,

@@ -114,7 +114,7 @@ impl ILQRSolver {
             x = dynamics(x.as_slice(), u.as_slice());
             let delta = &x - target;
             loss += ((delta.transpose() * &self.Q).dot(&delta.transpose()))
-                + (&u.transpose() * &self.R).dot(&u);
+                + (&u.transpose() * &self.R).dot(u);
             xs.push(x.clone());
         }
 
@@ -135,8 +135,8 @@ impl ILQRSolver {
     #[allow(non_snake_case)]
     fn backward(
         &self,
-        xs: &Vec<DVector<f64>>,
-        us: &Vec<DVector<f64>>,
+        xs: &[DVector<f64>],
+        us: &[DVector<f64>],
         target: &DVector<f64>,
         dynamics: impl Fn(&[f64], &[f64]) -> DVector<f64>,
     ) -> (Vec<DMatrix<f64>>, Vec<DVector<f64>>) {
@@ -165,7 +165,7 @@ impl ILQRSolver {
                 .expect("the matrix Quu is not invertible");
 
             Ks[i] = -Quu_inv * &Qux;
-            ds[i] = -Quu_inv * &Qu;
+            ds[i] = -Quu_inv * Qu;
 
             s = Qx;
             s += Ks[i].transpose() * &Quu * &ds[i];
