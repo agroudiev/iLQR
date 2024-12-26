@@ -5,6 +5,11 @@ use numpy::{IntoPyArray, PyArray2, ToPyArray};
 use pyo3::prelude::*;
 use pyo3::{pyclass, pymethods};
 
+const MAX_ITERATIONS: usize = 100;
+const CONVERGENCE_THRESHOLD: f64 = 1e-2;
+const VERBOSE: bool = false;
+const GRADIENT_CLIP: f64 = 10.0;
+
 #[pyclass(name = "ILQRSolver")]
 #[derive(Debug)]
 /// A Python wrapper for `ILQRSolver`
@@ -62,7 +67,7 @@ impl PyILQRSolver {
         }
     }
 
-    #[pyo3(signature = (x0, target, dynamics, time_steps, max_iterations=None, convergence_threshold=None))]
+    #[pyo3(signature = (x0, target, dynamics, time_steps, max_iterations=None, convergence_threshold=None, gradient_clip=None, verbose=None))]
     fn solve(
         &self,
         py: Python<'_>,
@@ -72,6 +77,8 @@ impl PyILQRSolver {
         time_steps: usize,
         max_iterations: Option<usize>,
         convergence_threshold: Option<f64>,
+        gradient_clip: Option<f64>,
+        verbose: Option<bool>,
     ) -> Py<PyArray2<f64>> {
         // TODO: clean error handling for wrong shapes
         let x0 = x0.extract::<Vec<f64>>().unwrap();
@@ -89,8 +96,10 @@ impl PyILQRSolver {
             "Invalid target dimension"
         );
         assert!(time_steps > 0, "Time steps must non-zero");
-        let max_iterations = max_iterations.unwrap_or(100);
-        let convergence_threshold = convergence_threshold.unwrap_or(1e-2);
+        let max_iterations = max_iterations.unwrap_or(MAX_ITERATIONS);
+        let convergence_threshold = convergence_threshold.unwrap_or(CONVERGENCE_THRESHOLD);
+        let verbose = verbose.unwrap_or(VERBOSE);
+        let gradient_clip = gradient_clip.unwrap_or(GRADIENT_CLIP);
 
         // Convert the input to nalgebra types
         let x0 = DVector::from_row_slice(&x0);
@@ -111,6 +120,8 @@ impl PyILQRSolver {
             time_steps,
             max_iterations,
             convergence_threshold,
+            gradient_clip,
+            verbose,
         );
 
         // TODO: optimize the conversion

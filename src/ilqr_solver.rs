@@ -114,7 +114,7 @@ impl ILQRSolver {
             x = dynamics(x.as_slice(), u.as_slice());
             let delta = &x - target;
             loss += ((delta.transpose() * &self.Q).dot(&delta.transpose()))
-                + (&u.transpose() * &self.R).dot(u);
+                + (&u.transpose() * &self.R).transpose().dot(u);
             xs.push(x.clone());
         }
 
@@ -153,7 +153,7 @@ impl ILQRSolver {
             let (A, B) = self.jacobians(&dynamics, x.clone(), u.clone());
 
             let Qx = &self.Q * &(x - target) + (&s.transpose() * &A).transpose();
-            let Qu = &self.R * u + &s.transpose() * &B;
+            let Qu = &self.R * u + (&s.transpose() * &B).transpose();
 
             let Qxx = &self.Q + A.transpose() * &S * &A;
             let Quu = &self.R + B.transpose() * &S * &B;
@@ -165,7 +165,7 @@ impl ILQRSolver {
                 .expect("the matrix Quu is not invertible");
 
             Ks[i] = -Quu_inv * &Qux;
-            ds[i] = -Quu_inv * Qu;
+            ds[i] = -Quu_inv * &Qu;
 
             s = Qx;
             s += Ks[i].transpose() * &Quu * &ds[i];
@@ -196,14 +196,28 @@ impl ILQRSolver {
         time_steps: usize,
         max_iterations: usize,
         convergence_threshold: f64,
+        gradient_clip: f64,
+        verbose: bool,
     ) -> Vec<DVector<f64>> {
         // Initialize the trajectory
         let mut us = vec![DVector::zeros(self.control_dim); time_steps];
         // TODO: implement different initialization strategies
 
-        for _ in 0..max_iterations {
+        if verbose {
+            println!("==== Starting iLQR ====");
+        }
+
+        for iteration in 0..max_iterations {
+            if verbose {
+                println!("== Iteration: {iteration} ==");
+            }
             // Forward pass
             let (mut xs, _loss) = self.forward(&x0, &us, &target, &dynamics);
+
+            if verbose {
+                println!("Loss: {_loss}");
+            }
+
             // Backward pass
             #[allow(non_snake_case)]
             let (Ks, ds) = self.backward(&xs, &us, &target, &dynamics);
@@ -212,9 +226,13 @@ impl ILQRSolver {
             let mut x = x0.clone();
             let mut dus: Vec<DVector<f64>> = vec![DVector::zeros(self.control_dim); time_steps];
             for i in 0..time_steps {
-                let du = &Ks[i] * (&x - &xs[i]) + &ds[i];
+                let mut du = &Ks[i] * (&x - &xs[i]) + &ds[i];
 
-                // TODO: gradient clip `du`
+                // gradient clip `du`
+                let norm = du.norm();
+                if norm > gradient_clip {
+                    du = du / norm * gradient_clip;
+                }
 
                 us[i] += &du;
                 dus[i] = du;
@@ -225,7 +243,13 @@ impl ILQRSolver {
 
             // Check for convergence
             let norm = dus.iter().map(|du| du.norm()).sum::<f64>().sqrt();
+            if verbose {
+                println!("Gradient norm: {norm}");
+            }
             if norm < convergence_threshold {
+                if verbose {
+                    println!("==== Break: Converged ====");
+                }
                 break;
             }
         }
@@ -241,19 +265,19 @@ mod tests {
     #[test]
     #[allow(non_snake_case)]
     fn test_ilqr_solver() {
-        let state_dim = 2;
-        let control_dim = 1;
-        let Q = DMatrix::identity(2, 2);
-        let Qf = DMatrix::identity(2, 2);
-        let R = DMatrix::identity(1, 1);
+        let state_dim = 4;
+        let control_dim = 2;
+        let Q = DMatrix::identity(state_dim, state_dim);
+        let Qf = DMatrix::identity(state_dim, state_dim);
+        let R = DMatrix::identity(control_dim, control_dim);
 
         let solver = ILQRSolver::new(state_dim, control_dim, Q, Qf, R);
 
-        let x0 = DVector::zeros(2);
-        let target = DVector::from_element(2, 1.0);
+        let x0 = DVector::zeros(state_dim);
+        let target = DVector::from_element(state_dim, 1.0);
 
         let dynamics = |x: &[f64], _u: &[f64]| DVector::from_row_slice(&x);
 
-        let _ = solver.solve(x0, target, dynamics, 10, 100, 1e-2);
+        let _ = solver.solve(x0, target, dynamics, 10, 100, 1e-2, 1.0, false);
     }
 }
