@@ -26,5 +26,5 @@ You can then take a look at the code demos in the [`python/examples`](python/exa
 
 ## Examples
 The following examples are implemented in the [`python/examples`](python/examples/) directory. A checkmark indicates that the example can be successfully solved at the moment:
-- [x] [Inverted Pendulum](python/examples/inverted_pendulum.py): works with a number of pendulums `Nb_pendulum` equal to 1, 2
-- [x] [Cartpole](python/examples/cartpole.py)
+- [x] [Inverted Pendulum](python/examples/inverted_pendulum.ipynb): works with a number of pendulums `Nb_pendulum` equal to 1, 2
+- [x] [Cartpole](python/examples/cartpole.ipynb)

@@ -277,7 +277,7 @@ impl ILQRSolver {
                 break;
             }
             if norm.is_nan() {
-                panic!("Instable problem - NaN detected in the control sequence. Choose a small gradient clipping value, or reduce the number of iterations.");
+                panic!("Instable problem - NaN detected in the control sequence. Choose a small gradient clipping value, or reduce the number of iterations. (iteration: {iteration})");
             }
         }
 
