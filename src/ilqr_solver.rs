@@ -1,5 +1,6 @@
 use nalgebra::{DMatrix, DVector};
 use pyo3::pyclass;
+use rand_distr::{Distribution, Normal};
 
 const EPSILON: f64 = 1e-5;
 
@@ -20,7 +21,7 @@ pub struct ILQRSolver {
 }
 
 impl ILQRSolver {
-    /// Create a new ILQRSolver
+    /// Creates a new ILQRSolver.
     ///
     /// * `state_dim` - Dimension of the state space
     /// * `control_dim` - Dimension of the control space
@@ -194,28 +195,46 @@ impl ILQRSolver {
         target: DVector<f64>,
         dynamics: impl Fn(&[f64], &[f64]) -> DVector<f64>,
         time_steps: usize,
+        initialization: f64,
         max_iterations: usize,
         convergence_threshold: f64,
-        gradient_clip: f64,
+        gradient_clip: Option<f64>,
         verbose: bool,
     ) -> Vec<DVector<f64>> {
         // Initialize the trajectory
-        let mut us = vec![DVector::zeros(self.control_dim); time_steps];
-        // TODO: implement different initialization strategies
+        let mut us = if initialization == 0.0 {
+            // Initialize the controls to zeros
+            vec![DVector::zeros(self.control_dim); time_steps]
+        } else {
+            // Initialize the controls to random values from a normal distribution of mean 0 and std `initialization`
+            let mut rng = rand::thread_rng();
+            let normal = Normal::new(0.0, initialization).unwrap();
+
+            let mut us = Vec::with_capacity(time_steps);
+            for _ in 0..time_steps {
+                let u = DVector::from_fn(self.control_dim, |_, _| normal.sample(&mut rng));
+                us.push(u);
+            }
+            us
+        };
 
         if verbose {
             println!("==== Starting iLQR ====");
+            println!("Initial controls: {:?} (generated with std {initialization})", us);
+            println!("Initial state: {x0}");
+            println!("Target state: {target}");
+            println!("Gradient clip: {:?}", gradient_clip);
         }
 
         for iteration in 0..max_iterations {
             if verbose {
-                println!("== Iteration: {iteration} ==");
+                println!("\n== Iteration: {iteration} ==");
             }
             // Forward pass
-            let (mut xs, _loss) = self.forward(&x0, &us, &target, &dynamics);
+            let (mut xs, loss) = self.forward(&x0, &us, &target, &dynamics);
 
             if verbose {
-                println!("Loss: {_loss}");
+                println!("Loss: {loss}");
             }
 
             // Backward pass
@@ -228,10 +247,15 @@ impl ILQRSolver {
             for i in 0..time_steps {
                 let mut du = &Ks[i] * (&x - &xs[i]) + &ds[i];
 
-                // gradient clip `du`
-                let norm = du.norm();
-                if norm > gradient_clip {
-                    du = du / norm * gradient_clip;
+                match gradient_clip {
+                    // gradient clip `du` if its norm is greater than `gradient_clip`
+                    Some(gradient_clip) => {
+                        let norm = du.norm();
+                        if norm > gradient_clip {
+                            du = du / norm * gradient_clip;
+                        }
+                    }
+                    _ => {}
                 }
 
                 us[i] += &du;
@@ -252,6 +276,9 @@ impl ILQRSolver {
                 }
                 break;
             }
+            if norm.is_nan() {
+                panic!("Instable problem - NaN detected in the control sequence. Choose a small gradient clipping value, or reduce the number of iterations.");
+            }
         }
 
         us
@@ -262,11 +289,8 @@ impl ILQRSolver {
 mod tests {
     use super::*;
 
-    #[test]
     #[allow(non_snake_case)]
-    fn test_ilqr_solver() {
-        let state_dim = 4;
-        let control_dim = 2;
+    fn test_ilqr_solver(state_dim: usize, control_dim: usize, initialization: f64, gradient_clip: Option<f64>) {
         let Q = DMatrix::identity(state_dim, state_dim);
         let Qf = DMatrix::identity(state_dim, state_dim);
         let R = DMatrix::identity(control_dim, control_dim);
@@ -278,6 +302,36 @@ mod tests {
 
         let dynamics = |x: &[f64], _u: &[f64]| DVector::from_row_slice(&x);
 
-        let _ = solver.solve(x0, target, dynamics, 10, 100, 1e-2, 1.0, false);
+        let _ = solver.solve(
+            x0,
+            target,
+            dynamics,
+            10,
+            initialization,
+            100,
+            1e-2,
+            gradient_clip,
+            false,
+        );
+    }
+
+    #[test]
+    fn test_simple() {
+        test_ilqr_solver(2, 1, 0.0, None);
+    }
+
+    #[test]
+    fn test_simple_random() {
+        test_ilqr_solver(2, 1, 1.0, None);
+    }
+
+    #[test]
+    fn test_complex() {
+        test_ilqr_solver(4, 2, 0.0, Some(1.0));
+    }
+
+    #[test]
+    fn test_complex_random() {
+        test_ilqr_solver(4, 2, 1.0, Some(1.0));
     }
 }

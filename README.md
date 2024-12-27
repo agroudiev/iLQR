@@ -23,3 +23,8 @@ To build the Rust code and install it directly as a Python package in the curren
 maturin develop --release
 ```
 You can then take a look at the code demos in the [`python/examples`](python/examples/) directory. Be sure to select the correct virtual environment before running the demos.
+
+## Examples
+The following examples are implemented in the [`python/examples`](python/examples/) directory. A checkmark indicates that the example can be successfully solved at the moment:
+- [x] [Inverted Pendulum](python/examples/inverted_pendulum.py): works with a number of pendulums `Nb_pendulum` equal to 1, 2
+- [x] [Cartpole](python/examples/cartpole.py)

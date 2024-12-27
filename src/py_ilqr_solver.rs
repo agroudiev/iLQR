@@ -5,14 +5,20 @@ use numpy::{IntoPyArray, PyArray2, ToPyArray};
 use pyo3::prelude::*;
 use pyo3::{pyclass, pymethods};
 
+/// Maximum number of iterations
 const MAX_ITERATIONS: usize = 100;
+/// Threshold for the gradient norm
 const CONVERGENCE_THRESHOLD: f64 = 1e-2;
+/// Verbosity flag
 const VERBOSE: bool = false;
-const GRADIENT_CLIP: f64 = 10.0;
+// /// Gradient clipping value
+// const GRADIENT_CLIP: f64 = 10.0;
+/// Standard deviation for the initialization
+const INITIALIZATION: f64 = 0.0;
 
 #[pyclass(name = "ILQRSolver")]
 #[derive(Debug)]
-/// A Python wrapper for `ILQRSolver`
+/// A Python wrapper for `ILQRSolver`.
 pub struct PyILQRSolver {
     solver: ILQRSolver,
 }
@@ -67,7 +73,7 @@ impl PyILQRSolver {
         }
     }
 
-    #[pyo3(signature = (x0, target, dynamics, time_steps, max_iterations=None, convergence_threshold=None, gradient_clip=None, verbose=None))]
+    #[pyo3(signature = (x0, target, dynamics, time_steps, initialization=None, max_iterations=None, convergence_threshold=None, gradient_clip=None, verbose=None))]
     fn solve(
         &self,
         py: Python<'_>,
@@ -75,6 +81,7 @@ impl PyILQRSolver {
         target: Bound<PyAny>,
         dynamics: Bound<'_, PyAny>,
         time_steps: usize,
+        initialization: Option<f64>,
         max_iterations: Option<usize>,
         convergence_threshold: Option<f64>,
         gradient_clip: Option<f64>,
@@ -83,6 +90,12 @@ impl PyILQRSolver {
         // TODO: clean error handling for wrong shapes
         let x0 = x0.extract::<Vec<f64>>().unwrap();
         let target = target.extract::<Vec<f64>>().unwrap();
+
+        let max_iterations = max_iterations.unwrap_or(MAX_ITERATIONS);
+        let convergence_threshold = convergence_threshold.unwrap_or(CONVERGENCE_THRESHOLD);
+        let verbose = verbose.unwrap_or(VERBOSE);
+        // let gradient_clip = gradient_clip.unwrap_or(GRADIENT_CLIP);
+        let initialization = initialization.unwrap_or(INITIALIZATION);
 
         // Check the input dimensions
         assert!(
@@ -96,10 +109,10 @@ impl PyILQRSolver {
             "Invalid target dimension"
         );
         assert!(time_steps > 0, "Time steps must non-zero");
-        let max_iterations = max_iterations.unwrap_or(MAX_ITERATIONS);
-        let convergence_threshold = convergence_threshold.unwrap_or(CONVERGENCE_THRESHOLD);
-        let verbose = verbose.unwrap_or(VERBOSE);
-        let gradient_clip = gradient_clip.unwrap_or(GRADIENT_CLIP);
+        assert!(
+            initialization >= 0.0,
+            "Initialization standard deviation must be non-negative"
+        );
 
         // Convert the input to nalgebra types
         let x0 = DVector::from_row_slice(&x0);
@@ -118,6 +131,7 @@ impl PyILQRSolver {
                     .into()
             },
             time_steps,
+            initialization,
             max_iterations,
             convergence_threshold,
             gradient_clip,
