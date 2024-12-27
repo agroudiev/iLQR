@@ -1,6 +1,6 @@
 \documentclass[nodate]{../cs-classes/cs-classes}
 
-\title{\textit{Report}\\Implementation of an Iterative Linear Quadratic Regulator (iLQR)}
+\title{\vspace*{-1cm}\textit{Report}\\Implementation of an Iterative Linear Quadratic Regulator (iLQR)}
 \author{Gabriel Desfrene\and Antoine Groudiev}
 
 \begin{document}
@@ -45,7 +45,9 @@ The iLQR procedures iterates between the following three steps until convergence
 \end{enumerate}
 
 \section{Implementation}
-We implemented the iLQR algorithm in \href{https://www.rust-lang.org/}{\texttt{Rust}}, a systems programming language known for its performance and safety guarantees. The core of the algorithm is implemented in \texttt{Rust}, while the \texttt{Python} bindings are generated with the help of the \href{https://pyo3.rs/v0.23.3/}{\texttt{pyo3}} library, allowing its use alongside Pinocchio, a \texttt{C++} library for rigid body dynamics. The code is available on GitHub: \href{https://github.com/Red-Rapious/iLQR}{\texttt{https://github.com/Red-Rapious/iLQR}}, and includes several examples of problems.
+We implemented the iLQR algorithm in \href{https://www.rust-lang.org/}{\texttt{Rust}}, a systems programming language known for its performance and safety guarantees. The core of the algorithm is implemented in \texttt{Rust}, while the \texttt{Python} bindings are generated with the help of the \href{https://pyo3.rs/v0.23.3/}{\texttt{pyo3}} library, allowing its use alongside Pinocchio, a \texttt{C++} library for rigid body dynamics. The \texttt{Python} bindings use \texttt{NumPy} arrays as input and output, making it easy to integrate the iLQR algorithm in existing \texttt{Python} code, such as the examples provided by the \texttt{Pinocchio} library.
+
+The code is available on GitHub: \href{https://github.com/Red-Rapious/iLQR}{\texttt{https://github.com/Red-Rapious/iLQR}}, and includes several examples of problems of interest. Our implementation successfully solves multiple classical trajectory optimization problems, such as the cart-pole and simple inverted pendulum.
 
 \section{Results}
 
