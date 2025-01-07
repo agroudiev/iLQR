@@ -145,16 +145,16 @@ impl PyILQRSolver {
             verbose,
         )?;
 
-        // TODO: optimize the conversion
-        // Convert Vec<DVector<f64>> to Vec<Vec<f64>>
-        let us = us
+        // Flatten the data
+        let flat_data: Vec<f64> = us
             .into_iter()
-            .map(|x| x.as_slice().to_vec())
-            .collect::<Vec<Vec<f64>>>();
+            .flat_map(|x| x.data.as_vec().clone())
+            .collect::<Vec<f64>>();
 
-        // convert Vec<Vec<f64>> to Array2<f64>
+        // And reshape it to expected size
         Ok(
-            Array2::from_shape_fn((us.len(), us[0].len()), |(i, j)| us[i][j])
+            Array2::from_shape_vec((time_steps, self.solver.control_dim), flat_data)
+                .unwrap()
                 .into_pyarray(py)
                 .into(),
         )
