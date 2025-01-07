@@ -1,7 +1,8 @@
-use crate::ilqr_solver::ILQRSolver;
+use crate::ilqr_solver::{ILQRError, ILQRSolver};
 use nalgebra::{DMatrix, DVector};
 use numpy::ndarray::Array2;
 use numpy::{IntoPyArray, PyArray2, ToPyArray};
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::{pyclass, pymethods};
 
@@ -33,36 +34,37 @@ impl PyILQRSolver {
         Q: Bound<PyAny>,
         Qf: Bound<PyAny>,
         R: Bound<PyAny>,
-    ) -> Self {
-        // TODO: clean error handling for wrong shapes
+    ) -> PyResult<Self> {
         // Convert the numpy arrays to Rust types
-        let Q = Q.extract::<Vec<Vec<f64>>>().unwrap();
-        let Qf = Qf.extract::<Vec<Vec<f64>>>().unwrap();
-        let R = R.extract::<Vec<Vec<f64>>>().unwrap();
+        let Q = Q.extract::<Vec<Vec<f64>>>()?;
+        let Qf = Qf.extract::<Vec<Vec<f64>>>()?;
+        let R = R.extract::<Vec<Vec<f64>>>()?;
 
-        assert!(Q.len() == state_dim, "Invalid state cost matrix dimension");
-        assert!(
-            Q[0].len() == state_dim,
-            "Invalid state cost matrix dimension"
-        );
-        assert!(
-            Qf.len() == state_dim,
-            "Invalid final state cost matrix dimension"
-        );
-        assert!(
-            Qf[0].len() == state_dim,
-            "Invalid final state cost matrix dimension"
-        );
-        assert!(
-            R.len() == control_dim,
-            "Invalid control cost matrix dimension"
-        );
-        assert!(
-            R[0].len() == control_dim,
-            "Invalid control cost matrix dimension"
-        );
+        if Q.len() != state_dim || Q[0].len() != state_dim {
+            return Err(PyValueError::new_err(format!(
+                "Invalid state cost matrix dimension; expected {state_dim}x{state_dim} but got {}x{}.",
+                Q.len(),
+                Q[0].len()
+            )));
+        }
 
-        Self {
+        if Qf.len() != state_dim || Qf[0].len() != state_dim {
+            return Err(PyValueError::new_err(format!(
+                "Invalid final state cost matrix dimension; expected {state_dim}x{state_dim} but got {}x{}.",
+                Qf.len(),
+                Qf[0].len()
+            )));
+        }
+
+        if R.len() != control_dim || R[0].len() != control_dim {
+            return Err(PyValueError::new_err(format!(
+                "Invalid control cost matrix dimension; expected {control_dim}x{control_dim} but got {}x{}.",
+                R.len(),
+                R[0].len()
+            )));
+        }
+
+        Ok(Self {
             solver: ILQRSolver::new(
                 state_dim,
                 control_dim,
@@ -70,7 +72,7 @@ impl PyILQRSolver {
                 DMatrix::from_row_slice(Qf.len(), Qf[0].len(), &Qf.concat()),
                 DMatrix::from_row_slice(R.len(), R[0].len(), &R.concat()),
             ),
-        }
+        })
     }
 
     #[pyo3(signature = (x0, target, dynamics, time_steps, initialization=None, max_iterations=None, convergence_threshold=None, gradient_clip=None, verbose=None))]
@@ -86,10 +88,9 @@ impl PyILQRSolver {
         convergence_threshold: Option<f64>,
         gradient_clip: Option<f64>,
         verbose: Option<bool>,
-    ) -> Py<PyArray2<f64>> {
-        // TODO: clean error handling for wrong shapes
-        let x0 = x0.extract::<Vec<f64>>().unwrap();
-        let target = target.extract::<Vec<f64>>().unwrap();
+    ) -> PyResult<Py<PyArray2<f64>>> {
+        let x0 = x0.extract::<Vec<f64>>()?;
+        let target = target.extract::<Vec<f64>>()?;
 
         let max_iterations = max_iterations.unwrap_or(MAX_ITERATIONS);
         let convergence_threshold = convergence_threshold.unwrap_or(CONVERGENCE_THRESHOLD);
@@ -98,21 +99,29 @@ impl PyILQRSolver {
         let initialization = initialization.unwrap_or(INITIALIZATION);
 
         // Check the input dimensions
-        assert!(
-            x0.len() == self.solver.state_dim,
-            "Invalid initial state dimension; expected {} but got {}",
-            self.solver.state_dim,
-            x0.len()
-        );
-        assert!(
-            target.len() == self.solver.state_dim,
-            "Invalid target dimension"
-        );
-        assert!(time_steps > 0, "Time steps must non-zero");
-        assert!(
-            initialization >= 0.0,
-            "Initialization standard deviation must be non-negative"
-        );
+        if x0.len() != self.solver.state_dim {
+            return Err(PyValueError::new_err(format!(
+                "Invalid initial state dimension; expected {} but got {}.",
+                self.solver.state_dim,
+                x0.len()
+            )));
+        }
+
+        if target.len() != self.solver.state_dim {
+            return Err(PyValueError::new_err(format!(
+                "Invalid target dimension; expected {} but got {}.",
+                self.solver.state_dim,
+                target.len()
+            )));
+        }
+        if time_steps == 0 {
+            return Err(PyValueError::new_err("Time steps must non-zero."));
+        }
+        if initialization < 0.0 {
+            return Err(PyValueError::new_err(
+                "Initialization standard deviation must be non-negative.",
+            ));
+        }
 
         // Convert the input to nalgebra types
         let x0 = DVector::from_row_slice(&x0);
@@ -123,12 +132,10 @@ impl PyILQRSolver {
             x0,
             target,
             |x, u| {
-                dynamics
-                    .call1((x.to_pyarray(py), u.to_pyarray(py)))
-                    .unwrap()
-                    .extract::<Vec<f64>>()
-                    .unwrap()
-                    .into()
+                Ok(dynamics
+                    .call1((x.to_pyarray(py), u.to_pyarray(py)))?
+                    .extract::<Vec<f64>>()?
+                    .into())
             },
             time_steps,
             initialization,
@@ -136,7 +143,7 @@ impl PyILQRSolver {
             convergence_threshold,
             gradient_clip,
             verbose,
-        );
+        )?;
 
         // TODO: optimize the conversion
         // Convert Vec<DVector<f64>> to Vec<Vec<f64>>
@@ -146,12 +153,25 @@ impl PyILQRSolver {
             .collect::<Vec<Vec<f64>>>();
 
         // convert Vec<Vec<f64>> to Array2<f64>
-        Array2::from_shape_fn((us.len(), us[0].len()), |(i, j)| us[i][j])
-            .into_pyarray(py)
-            .into()
+        Ok(
+            Array2::from_shape_fn((us.len(), us[0].len()), |(i, j)| us[i][j])
+                .into_pyarray(py)
+                .into(),
+        )
     }
 
     fn __repr__(&self) -> PyResult<String> {
         Ok(format!("{:?}", self.solver))
+    }
+}
+
+impl std::convert::From<ILQRError<PyErr>> for PyErr {
+    fn from(err: ILQRError<PyErr>) -> PyErr {
+        match err {
+            ILQRError::QUUNotInvertible => PyRuntimeError::new_err("The Quu matrix should be invertible."),
+            ILQRError::InstableProblem(iteration) =>
+                PyRuntimeError::new_err(format!("Instable problem - NaN detected in the control sequence. Choose a small gradient clipping value, or reduce the number of iterations. (iteration: {iteration})")),
+            ILQRError::DynamicsError(e) => e,
+        }
     }
 }

@@ -4,6 +4,13 @@ use rand_distr::{Distribution, Normal};
 
 const EPSILON: f64 = 1e-5;
 
+#[derive(Debug)]
+pub enum ILQRError<E> {
+    QUUNotInvertible,
+    InstableProblem(usize),
+    DynamicsError(E),
+}
+
 #[allow(non_snake_case)]
 #[pyclass]
 #[derive(Debug)]
@@ -53,12 +60,12 @@ impl ILQRSolver {
     /// * `u` - The control
     ///
     /// Returns: `(A, B)` where A = ∂f/∂x and B = ∂f/∂u at `(x, u)`
-    fn jacobians(
+    fn jacobians<E>(
         &self,
-        f: impl Fn(&[f64], &[f64]) -> DVector<f64>,
+        f: impl Fn(&[f64], &[f64]) -> Result<DVector<f64>, E>,
         x: DVector<f64>,
         u: DVector<f64>,
-    ) -> (DMatrix<f64>, DMatrix<f64>) {
+    ) -> Result<(DMatrix<f64>, DMatrix<f64>), ILQRError<E>> {
         #[allow(non_snake_case)]
         let mut A = DMatrix::zeros(self.state_dim, self.state_dim);
         #[allow(non_snake_case)]
@@ -70,8 +77,8 @@ impl ILQRSolver {
             let mut xmdx = x.clone();
             xmdx[i] -= EPSILON;
 
-            let f_xpdx = f(xpdx.as_slice(), u.as_slice());
-            let f_xmdx = f(xmdx.as_slice(), u.as_slice());
+            let f_xpdx = f(xpdx.as_slice(), u.as_slice()).map_err(ILQRError::DynamicsError)?;
+            let f_xmdx = f(xmdx.as_slice(), u.as_slice()).map_err(ILQRError::DynamicsError)?;
 
             let df_dx = (f_xpdx - f_xmdx) / (2.0 * EPSILON);
             A.set_column(i, &df_dx);
@@ -83,14 +90,14 @@ impl ILQRSolver {
             let mut umdu = u.clone();
             umdu[i] -= EPSILON;
 
-            let f_updu = f(x.as_slice(), updu.as_slice());
-            let f_umdu = f(x.as_slice(), umdu.as_slice());
+            let f_updu = f(x.as_slice(), updu.as_slice()).map_err(ILQRError::DynamicsError)?;
+            let f_umdu = f(x.as_slice(), umdu.as_slice()).map_err(ILQRError::DynamicsError)?;
 
             let df_du = (f_updu - f_umdu) / (2.0 * EPSILON);
             B.set_column(i, &df_du);
         }
 
-        (A, B)
+        Ok((A, B))
     }
 
     /// Computes the LQR forward pass from a given state `x`, controls `us`, and a `target`
@@ -100,19 +107,19 @@ impl ILQRSolver {
     /// * `target` - The target state
     ///
     /// Returns: a tuple `(xs, loss)` containing the states and loss
-    fn forward(
+    fn forward<E>(
         &self,
         x: &DVector<f64>,
         us: &Vec<DVector<f64>>,
         target: &DVector<f64>,
-        dynamics: impl Fn(&[f64], &[f64]) -> DVector<f64>,
-    ) -> (Vec<DVector<f64>>, f64) {
+        dynamics: impl Fn(&[f64], &[f64]) -> Result<DVector<f64>, E>,
+    ) -> Result<(Vec<DVector<f64>>, f64), ILQRError<E>> {
         let mut x = x.clone();
         let mut xs = vec![x.clone()];
         let mut loss = 0.0;
 
         for u in us {
-            x = dynamics(x.as_slice(), u.as_slice());
+            x = dynamics(x.as_slice(), u.as_slice()).map_err(ILQRError::DynamicsError)?;
             let delta = &x - target;
             loss += ((delta.transpose() * &self.Q).dot(&delta.transpose()))
                 + (&u.transpose() * &self.R).transpose().dot(u);
@@ -122,7 +129,7 @@ impl ILQRSolver {
         let delta = &x - target;
         loss += (delta.transpose() * &self.Qf).dot(&delta.transpose());
 
-        (xs, loss)
+        Ok((xs, loss))
     }
 
     /// Computes the LQR backward pass given the states `xs`, controls `us`, and a `target`
@@ -132,15 +139,15 @@ impl ILQRSolver {
     /// * `target` - The target state
     /// * `dynamics` - The dynamics function
     ///
-    /// Returns: a tuple `(Ks, ds)` containing the control gains and the forcing gains
+    /// Returns: On success, a tuple `(Ks, ds)` containing the control gains and the forcing gains.
     #[allow(non_snake_case)]
-    fn backward(
+    fn backward<E>(
         &self,
         xs: &[DVector<f64>],
         us: &[DVector<f64>],
         target: &DVector<f64>,
-        dynamics: impl Fn(&[f64], &[f64]) -> DVector<f64>,
-    ) -> (Vec<DMatrix<f64>>, Vec<DVector<f64>>) {
+        dynamics: impl Fn(&[f64], &[f64]) -> Result<DVector<f64>, E>,
+    ) -> Result<(Vec<DMatrix<f64>>, Vec<DVector<f64>>), ILQRError<E>> {
         let mut Ks = vec![DMatrix::zeros(self.control_dim, self.state_dim); xs.len()];
         let mut ds = vec![DVector::zeros(self.control_dim); xs.len()];
 
@@ -151,7 +158,7 @@ impl ILQRSolver {
             let x = &xs[i];
             let u = &us[i];
 
-            let (A, B) = self.jacobians(&dynamics, x.clone(), u.clone());
+            let (A, B) = self.jacobians(&dynamics, x.clone(), u.clone())?;
 
             let Qx = &self.Q * &(x - target) + (&s.transpose() * &A).transpose();
             let Qu = &self.R * u + (&s.transpose() * &B).transpose();
@@ -163,7 +170,7 @@ impl ILQRSolver {
             let Quu_inv = &Quu
                 .clone()
                 .try_inverse()
-                .expect("the matrix Quu is not invertible");
+                .map_or_else(|| Err(ILQRError::QUUNotInvertible), Ok)?;
 
             Ks[i] = -Quu_inv * &Qux;
             ds[i] = -Quu_inv * &Qu;
@@ -179,7 +186,7 @@ impl ILQRSolver {
             S += Qux.transpose() * &Ks[i];
         }
 
-        (Ks, ds)
+        Ok((Ks, ds))
     }
 
     /// Solves the ILQR problem from a given initial state `x0` and target `target`
@@ -188,19 +195,19 @@ impl ILQRSolver {
     /// * `target` - The target state
     /// * `dynamics` - The dynamics function, that computes the next state given the current state `x` and control `u`
     ///
-    /// Returns: the sequence of controls
-    pub fn solve(
+    /// Returns: On success, the sequence of controls
+    pub fn solve<E>(
         &self,
         x0: DVector<f64>,
         target: DVector<f64>,
-        dynamics: impl Fn(&[f64], &[f64]) -> DVector<f64>,
+        dynamics: impl Fn(&[f64], &[f64]) -> Result<DVector<f64>, E>,
         time_steps: usize,
         initialization: f64,
         max_iterations: usize,
         convergence_threshold: f64,
         gradient_clip: Option<f64>,
         verbose: bool,
-    ) -> Vec<DVector<f64>> {
+    ) -> Result<Vec<DVector<f64>>, ILQRError<E>> {
         // Initialize the trajectory
         let mut us = if initialization == 0.0 {
             // Initialize the controls to zeros
@@ -220,7 +227,10 @@ impl ILQRSolver {
 
         if verbose {
             println!("==== Starting iLQR ====");
-            println!("Initial controls: {:?} (generated with std {initialization})", us);
+            println!(
+                "Initial controls: {:?} (generated with std {initialization})",
+                us
+            );
             println!("Initial state: {x0}");
             println!("Target state: {target}");
             println!("Gradient clip: {:?}", gradient_clip);
@@ -231,7 +241,7 @@ impl ILQRSolver {
                 println!("\n== Iteration: {iteration} ==");
             }
             // Forward pass
-            let (mut xs, loss) = self.forward(&x0, &us, &target, &dynamics);
+            let (mut xs, loss) = self.forward(&x0, &us, &target, &dynamics)?;
 
             if verbose {
                 println!("Loss: {loss}");
@@ -239,7 +249,7 @@ impl ILQRSolver {
 
             // Backward pass
             #[allow(non_snake_case)]
-            let (Ks, ds) = self.backward(&xs, &us, &target, &dynamics);
+            let (Ks, ds) = self.backward(&xs, &us, &target, &dynamics)?;
 
             // Update the controls
             let mut x = x0.clone();
@@ -261,7 +271,7 @@ impl ILQRSolver {
                 us[i] += &du;
                 dus[i] = du;
 
-                x = dynamics(x.as_slice(), us[i].as_slice());
+                x = dynamics(x.as_slice(), us[i].as_slice()).map_err(ILQRError::DynamicsError)?;
                 xs[i] = x.clone();
             }
 
@@ -277,11 +287,11 @@ impl ILQRSolver {
                 break;
             }
             if norm.is_nan() {
-                panic!("Instable problem - NaN detected in the control sequence. Choose a small gradient clipping value, or reduce the number of iterations. (iteration: {iteration})");
+                return Err(ILQRError::InstableProblem(iteration));
             }
         }
 
-        us
+        Ok(us)
     }
 }
 
@@ -290,7 +300,12 @@ mod tests {
     use super::*;
 
     #[allow(non_snake_case)]
-    fn test_ilqr_solver(state_dim: usize, control_dim: usize, initialization: f64, gradient_clip: Option<f64>) {
+    fn test_ilqr_solver(
+        state_dim: usize,
+        control_dim: usize,
+        initialization: f64,
+        gradient_clip: Option<f64>,
+    ) {
         let Q = DMatrix::identity(state_dim, state_dim);
         let Qf = DMatrix::identity(state_dim, state_dim);
         let R = DMatrix::identity(control_dim, control_dim);
@@ -300,7 +315,7 @@ mod tests {
         let x0 = DVector::zeros(state_dim);
         let target = DVector::from_element(state_dim, 1.0);
 
-        let dynamics = |x: &[f64], _u: &[f64]| DVector::from_row_slice(&x);
+        let dynamics = |x: &[f64], _u: &[f64]| Ok::<DVector<f64>, ()>(DVector::from_row_slice(&x));
 
         let _ = solver.solve(
             x0,
