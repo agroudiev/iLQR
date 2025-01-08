@@ -1,5 +1,6 @@
+use std::time::Instant;
+
 use nalgebra::{DMatrix, DVector};
-use pyo3::pyclass;
 use rand_distr::{Distribution, Normal};
 
 const EPSILON: f64 = 1e-5;
@@ -14,7 +15,6 @@ pub enum ILQRError<E> {
 type ILQRResult<T, E> = Result<T, ILQRError<E>>;
 
 #[allow(non_snake_case)]
-#[pyclass]
 #[derive(Debug)]
 pub struct ILQRSolver {
     /// Dimension of the state space
@@ -27,6 +27,27 @@ pub struct ILQRSolver {
     pub Qf: DMatrix<f64>,
     /// Control cost matrix
     pub R: DMatrix<f64>,
+}
+
+#[derive(Debug)]
+pub enum OutputKind {
+    Partial,
+    Converged,
+}
+
+#[derive(Debug)]
+pub struct ILQROutput {
+    pub kind: OutputKind,
+    pub control: Vec<DVector<f64>>,
+    pub time_taken: f64,
+    pub it_taken: usize,
+    pub cost: Vec<f64>,
+    pub gradient_norm: Vec<f64>,
+}
+
+pub enum ILQRStopThreshold {
+    GradientNormThreshold(f64),
+    CostThreshold(f64),
 }
 
 impl ILQRSolver {
@@ -227,15 +248,19 @@ impl ILQRSolver {
         time_steps: usize,
         initialization: f64,
         max_iterations: usize,
-        convergence_threshold: f64,
+        convergence_threshold: ILQRStopThreshold,
         jac: Option<J>,
         gradient_clip: Option<f64>,
         verbose: bool,
-    ) -> ILQRResult<Vec<DVector<f64>>, E>
+    ) -> ILQRResult<ILQROutput, E>
     where
         D: Fn(&[f64], &[f64]) -> Result<DVector<f64>, E>,
         J: Fn(&[f64], &[f64]) -> Result<(DMatrix<f64>, DMatrix<f64>), E>,
     {
+        // Initialize cost and norm vectors
+        let mut cost = Vec::new();
+        let mut norm = Vec::new();
+
         // Initialize the trajectory
         let mut us = if initialization == 0.0 {
             // Initialize the controls to zeros
@@ -264,6 +289,8 @@ impl ILQRSolver {
             println!("Gradient clip: {:?}", gradient_clip);
         }
 
+        let beg: Instant = Instant::now();
+
         for iteration in 0..max_iterations {
             if verbose {
                 println!("\n== Iteration: {iteration} ==");
@@ -282,7 +309,13 @@ impl ILQRSolver {
             // Update the controls
             let mut x = x0.clone();
             let mut dus: Vec<DVector<f64>> = vec![DVector::zeros(self.control_dim); time_steps];
+
+            let mut cost_i = 0.0;
             for i in 0..time_steps {
+                // Do it at the beginning to compute the sum from 0 to N-1
+                cost_i += (&x.transpose() * &self.Q * &x).as_scalar()
+                    + (&us[i].transpose() * &self.R * &us[i]).as_scalar();
+
                 let mut du = &Ks[i] * (&x - &xs[i]) + &ds[i];
 
                 match gradient_clip {
@@ -302,24 +335,57 @@ impl ILQRSolver {
                 x = dynamics(x.as_slice(), us[i].as_slice()).map_err(ILQRError::DynamicsError)?;
                 xs[i] = x.clone();
             }
+            // Add the final terms of the cost
+            let x_diff = x - &target;
+            cost_i += (x_diff.transpose() * &self.Qf * x_diff).as_scalar();
+
+            // The squared norm is the sum of the square of all elements
+            let norm_i = dus
+                .iter()
+                .map(|du| du.norm() * du.norm())
+                .sum::<f64>()
+                .sqrt();
+
+            cost.push(cost_i);
+            norm.push(norm_i);
+
+            if verbose {
+                println!("Gradient norm: {norm_i}");
+                println!("Cost: {cost_i}");
+            }
 
             // Check for convergence
-            let norm = dus.iter().map(|du| du.norm()).sum::<f64>().sqrt();
-            if verbose {
-                println!("Gradient norm: {norm}");
-            }
-            if norm < convergence_threshold {
+            let converged = match convergence_threshold {
+                ILQRStopThreshold::GradientNormThreshold(norm_thresh) => norm_i < norm_thresh,
+                ILQRStopThreshold::CostThreshold(cost_thresh) => cost_i < cost_thresh,
+            };
+
+            if converged {
                 if verbose {
                     println!("==== Break: Converged ====");
                 }
-                break;
+                return Ok(ILQROutput {
+                    kind: OutputKind::Converged,
+                    control: us,
+                    time_taken: (Instant::now() - beg).as_secs_f64(),
+                    it_taken: iteration,
+                    cost: cost,
+                    gradient_norm: norm,
+                });
             }
-            if norm.is_nan() {
+            if norm_i.is_nan() {
                 return Err(ILQRError::InstableProblem(iteration));
             }
         }
 
-        Ok(us)
+        return Ok(ILQROutput {
+            kind: OutputKind::Partial,
+            control: us,
+            time_taken: (Instant::now() - beg).as_secs_f64(),
+            it_taken: max_iterations,
+            cost: cost,
+            gradient_norm: norm,
+        });
     }
 }
 
@@ -352,7 +418,7 @@ mod tests {
             10,
             initialization,
             100,
-            1e-2,
+            ILQRStopThreshold::GradientNormThreshold(1e-2),
             None::<fn(&[f64], &[f64]) -> Result<(DMatrix<f64>, DMatrix<f64>), ()>>,
             gradient_clip,
             false,

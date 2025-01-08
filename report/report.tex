@@ -1,5 +1,7 @@
 \documentclass[nodate]{../cs-classes/cs-classes}
 
+\usepackage{multirow}
+
 \title{\vspace*{-1cm}\textit{Report}\\Implementation of an Iterative Linear Quadratic Regulator (iLQR)}
 \author{Gabriel Desfrene\and Antoine Groudiev}
 
@@ -50,5 +52,29 @@ We implemented the iLQR algorithm in \href{https://www.rust-lang.org/}{\texttt{R
 The code is available on GitHub: \href{https://github.com/Red-Rapious/iLQR}{\texttt{https://github.com/Red-Rapious/iLQR}}, and includes several examples of problems of interest. Our implementation successfully solves multiple classical trajectory optimization problems, such as the cart-pole and simple inverted pendulum.
 
 \section{Results}
+
+We tested our algorithm on two examples that we adapted from the \texttt{Pinocchio} library:
+\begin{itemize}
+    \item \texttt{inverted-pendulum} that aims at balancing a pendulum in the upright position by applying a torque to its joint,
+    \item \texttt{cartpole} that aims at balancing a pendulum in the upright position by moving the cart below.
+\end{itemize}
+The table~\ref{table:perf} summarize the results given by our algorithm for the two examples.
+
+\begin{table}[htbp]
+    \centering
+    \begin{tabular}{ccccc}
+        \toprule
+        Example name                                & Cost Threshold & Iterations & Error ($\ell_2$) & Time (sec) \\
+        \midrule
+        \multirow{2}{*}{\texttt{inverted-pendulum}} & 1.0            & 7          & 0.615            & 0.24       \\
+                                                    & 0.1            & 8          & 0.023            & 0.38       \\
+        \multirow{2}{*}{\texttt{cartpole}}          & 1.0            & 10         & 0.135            & 0.41       \\
+                                                    & 0.1            & 22         & 0.047            & 0.76       \\
+        \bottomrule
+    \end{tabular}
+    \caption{Results of our iLQR implementation.}
+    \label{table:perf}
+\end{table}
+
 
 \end{document}

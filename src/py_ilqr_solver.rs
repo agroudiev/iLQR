@@ -1,15 +1,16 @@
-use crate::ilqr_solver::{ILQRError, ILQRSolver};
+use crate::ilqr_solver::{ILQRError, ILQRSolver, ILQRStopThreshold, OutputKind};
 use nalgebra::{DMatrix, DVector};
 use numpy::ndarray::Array2;
-use numpy::{IntoPyArray, PyArray2, ToPyArray};
+use numpy::{IntoPyArray, ToPyArray};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use pyo3::{pyclass, pymethods};
 
 /// Maximum number of iterations
 const MAX_ITERATIONS: usize = 100;
-/// Threshold for the gradient norm
-const CONVERGENCE_THRESHOLD: f64 = 1e-2;
+/// Threshold
+const DEFAULT_THRESHOLD: ILQRStopThreshold = ILQRStopThreshold::GradientNormThreshold(1e-2);
 /// Verbosity flag
 const VERBOSE: bool = false;
 // /// Gradient clipping value
@@ -76,7 +77,7 @@ impl PyILQRSolver {
         })
     }
 
-    #[pyo3(signature = (x0, target, dynamics, time_steps, jacobians=None, initialization=None, max_iterations=None, convergence_threshold=None, gradient_clip=None, verbose=None))]
+    #[pyo3(signature = (x0, target, dynamics, time_steps, jacobians=None, initialization=None, max_iterations=None, cost_threshold=None, gradient_threshold=None, gradient_clip=None, verbose=None, full_output=None))]
     fn solve(
         &self,
         py: Python<'_>,
@@ -87,18 +88,24 @@ impl PyILQRSolver {
         jacobians: Option<Bound<'_, PyAny>>,
         initialization: Option<f64>,
         max_iterations: Option<usize>,
-        convergence_threshold: Option<f64>,
+        cost_threshold: Option<f64>,
+        gradient_threshold: Option<f64>,
         gradient_clip: Option<f64>,
         verbose: Option<bool>,
-    ) -> PyResult<Py<PyArray2<f64>>> {
+        full_output: Option<bool>,
+    ) -> PyResult<Py<PyAny>> {
         let x0 = x0.extract::<Vec<f64>>()?;
         let target = target.extract::<Vec<f64>>()?;
 
         let max_iterations = max_iterations.unwrap_or(MAX_ITERATIONS);
-        let convergence_threshold = convergence_threshold.unwrap_or(CONVERGENCE_THRESHOLD);
+        let threshold = gradient_threshold.map_or(
+            cost_threshold.map_or(DEFAULT_THRESHOLD, ILQRStopThreshold::CostThreshold),
+            ILQRStopThreshold::GradientNormThreshold,
+        );
         let verbose = verbose.unwrap_or(VERBOSE);
         // let gradient_clip = gradient_clip.unwrap_or(GRADIENT_CLIP);
         let initialization = initialization.unwrap_or(INITIALIZATION);
+        let full_output = full_output.unwrap_or(false);
 
         // Check the input dimensions
         if x0.len() != self.solver.state_dim {
@@ -175,7 +182,7 @@ impl PyILQRSolver {
             time_steps,
             initialization,
             max_iterations,
-            convergence_threshold,
+            threshold,
             jac_f,
             gradient_clip,
             verbose,
@@ -183,17 +190,34 @@ impl PyILQRSolver {
 
         // Flatten the data
         let flat_data: Vec<f64> = us
+            .control
             .into_iter()
             .flat_map(|x| x.data.as_vec().clone())
             .collect::<Vec<f64>>();
 
         // And reshape it to expected size
-        Ok(
-            Array2::from_shape_vec((time_steps, self.solver.control_dim), flat_data)
-                .unwrap()
-                .into_pyarray(py)
-                .into(),
-        )
+        let np_array = Array2::from_shape_vec((time_steps, self.solver.control_dim), flat_data)
+            .unwrap()
+            .into_pyarray(py)
+            .into_any();
+
+        if full_output {
+            let output_struct = PyDict::new(py);
+            output_struct.set_item("control", np_array)?;
+            output_struct.set_item("time_taken", us.time_taken)?;
+            output_struct.set_item("it_taken", us.it_taken)?;
+            output_struct.set_item("gradient_norm", us.gradient_norm)?;
+            output_struct.set_item("cost", us.cost)?;
+
+            match us.kind {
+                OutputKind::Partial => output_struct.set_item("kind", "partial")?,
+                OutputKind::Converged => output_struct.set_item("kind", "converged")?,
+            }
+
+            Ok(output_struct.into_any().unbind())
+        } else {
+            Ok(np_array.unbind())
+        }
     }
 
     fn __repr__(&self) -> PyResult<String> {
