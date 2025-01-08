@@ -50,10 +50,12 @@
 
 \usepackage{mathtools}
 \usepackage{wrapfig}
-\usepackage{enumitem}
-\usepackage{tikz}
-\usepackage{xcolor}
-\usetikzlibrary{positioning}
+% \usepackage{enumitem}
+% \usepackage{tikz}
+% \usepackage{xcolor}
+% \usetikzlibrary{positioning}
+\usepackage{booktabs}
+\newcommand{\tabitem}{~~\llap{\textbullet}~~}
 
 \usepackage[
     backend=biber,
@@ -62,6 +64,8 @@
 \usepackage{graphicx}
 \usepackage[justification=centering]{caption}
 \usepackage{csquotes}
+% \usepackage{multimedia}
+
 
 \graphicspath{{./images/}}
 
@@ -83,7 +87,7 @@
 \renewcommand{\leq}{\leqslant}
 \renewcommand{\geq}{\geqslant}
 
-\setbeamertemplate{itemize items}[circle]
+% \setbeamertemplate{itemize items}[circle]
 
 
 \title{\textbf{Implementation of an\\Iterative Linear Quadratic Regulator (iLQR)}}
@@ -165,8 +169,123 @@
 \end{frame}
 
 \section{The iLQR algorithm}
+\begin{frame}{General idea}
+    \begin{itemize}
+        \item iLQR is an iterative algorithm
+        \item Start with an initial trajectory
+        \item Iteratively improve it using a local linear approximation
+        \item Stop when the trajectory converges
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Linearizing the dynamics}
+    The equation $x_{t+1} = f(x_t, u_t)$ is linearized (at each step) as:
+    \begin{equation*}
+        \delta x_{t+1} = A_t \delta x_t + B_t \delta u_t
+    \end{equation*}
+    with:
+    \begin{itemize}
+        \item $A_t$: Jacobian of $f$ with respect to $x$ evaluated at $(x_t, u_t)$
+        \item $B_t$: Jacobian of $f$ with respect to $u$ evaluated at $(x_t, u_t)$
+    \end{itemize}
+    We are in LQR (Linear Quadratic Regulator, cf. TP5) setup!
+\end{frame}
+
+\begin{frame}{Trajectory refinement using LQR}
+    \begin{enumerate}
+        \item \textbf{Forward pass}: compute the successive states $(x_t)$ for the current controls $(u_t)$, and the corresponding cost $J$
+        \item \textbf{Backward pass}: compute the gains, i.e. how much we should change the controls in each direction to minimize the cost
+        \item \textbf{Forward rollout}: apply the gains to the controls to obtain a new trajectory
+        \item Repeat until convergence
+    \end{enumerate}
+\end{frame}
+
+\begin{frame}{Computing the Jacobians}{Finite differences method}
+    We want to compute:
+    \begin{itemize}
+        \item $A_t=\frac{\partial f}{\partial x}(x_t, u_t)$, i.e. how much the state at time $t+1$ changes when we slightly change the state at time $t$
+        \item $B_t=\frac{\partial f}{\partial u}(x_t, u_t)$, i.e. how much the state at time $t+1$ changes when we slightly change the control at time $t$
+    \end{itemize}
+    In a black box setting, we can use finite differences:
+    \begin{align*}
+        [A_t]_i &\approx \frac{f(x_t+\varepsilon e_i, u_t)-f(x_t-\varepsilon e_i, u_t)}{2\varepsilon}\\
+        [B_t]_i &\approx \frac{f(x_t, u_t+\varepsilon e_i)-f(x_t, u_t-\varepsilon e_i)}{2\varepsilon}
+    \end{align*}
+    for some small $\varepsilon$ and the canonical basis $(e_i)$
+\end{frame}
+
+\begin{frame}{Computing the Jacobians}{Using Pinocchio}
+    
+\end{frame}
+
+\section{Our implementation}
+\begin{frame}{What language to use?}
+    \begin{figure}
+        \centering
+        \renewcommand{\arraystretch}{1.4}
+        \begin{tabular}{p{5cm}p{4cm}p{4cm}}
+            \centering\textbf{Python}&\centering\textbf{C++}&\hspace{1.3cm}\textbf{Rust}\\
+            \tabitem Easy to use&\tabitem Fast&\tabitem Fast\\
+            \tabitem Bindings for many libraries&\tabitem Not very funny&\tabitem Very funny\\
+            \tabitem Embarrassingly slow&&
+        \end{tabular}
+    \end{figure}
+    % \begin{minipage}[c]{0.3\linewidth}
+    %     \textbf{Python}
+    %     \begin{itemize}
+    %         \item Easy to use
+    %         \item Bindings for many libraries
+    %         \item Embarrassingly slow
+    %     \end{itemize}
+    % \end{minipage}
+    % \hspace{0.25cm}
+    % \begin{minipage}[c]{0.3\linewidth}
+    %     \textbf{C++}
+    %     \begin{itemize}
+    %         \item Fast
+    %         \item Not very funny
+    %     \end{itemize}
+    % \end{minipage}
+    % \hspace{0.25cm}
+    % \begin{minipage}[c]{0.3\linewidth}
+    %     \textbf{Rust}
+    % \end{minipage}
+\end{frame}
+
+\begin{frame}{From Rust to Python, and the other way around}
+    
+\end{frame}
+
+\begin{frame}{API Basic usage}
+    
+\end{frame}
+
+\section{Demonstration time}
+\begin{frame}
+    \begin{center}
+        \huge Demonstration time!
+    \end{center}
+    % \begin{minipage}[c]{0.45\linewidth}
+    %     \begin{figure}
+    %         \centering
+    %         \includegraphics[width=0.7\linewidth]{pendulum.png}
+    %     \end{figure}
+    % \end{minipage}
+    % \hspace{0.25cm}
+    % \begin{minipage}[c]{0.45\linewidth}
+    %     \begin{figure}
+    %         \centering
+    %         \includegraphics[width=0.7\linewidth]{cartpole.png}
+    %     \end{figure}
+    % \end{minipage}
+\end{frame}
+
+% \begin{frame}
+%     \movie{placeholder box}{images/balanced-pendulum.mov}
+% \end{frame}
 
 
+\section{Conclusion}
 \begin{frame}[allowframebreaks]
     \nocite{*}
     \printbibliography
