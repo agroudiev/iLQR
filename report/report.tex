@@ -25,7 +25,7 @@ where $Q_f$ is the final state cost matrix, $Q$ the state cost matrix, and $R$ t
 \subsection{Example: the inverted pendulum}
 Consider a simple pendulum, where we denote $x = (\theta, \dot{\theta})$ the state of the system, with $\theta$ the angle between the pendulum and the vertical axis, and $\dot{\theta}$ its angular velocity. The dynamics of the system are given by physical laws, and can be seen as a black-box function implemented in a simulator. We can use the following cost function to stabilize the pendulum in the upright position:
 \begin{equation*}
-    J = \frac{1}{2}\left(\theta^2+\dot{\theta}^2\right) + \frac{1}{2}\int_0^T ru^2 \dd
+    J(u) = \frac{1}{2}\left(\theta_f^2+\dot{\theta}_f^2\right) + \frac{1}{2}\int_0^T ru^2(t) \dd t
 \end{equation*}
 with $r=10^{-5}$. This corresponds to $Q_f = I_2$, $Q=O_2$, and $R=rI_1$. Such a cost function will penalize large angles and velocities, while minimizing the control effort (the integral term), with a weight $r$ to balance the two objectives.
 

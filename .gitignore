@@ -73,3 +73,7 @@ docs/_build/
 
 # Jupyter stuff
 .ipynb_checkpoints
+
+# TeX
+*.nav
+*.snm
