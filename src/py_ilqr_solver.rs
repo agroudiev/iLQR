@@ -24,6 +24,17 @@ pub struct PyILQRSolver {
     solver: ILQRSolver,
 }
 
+fn check_mat(mat: Vec<Vec<f64>>, nrows: usize, ncols: usize, msg: &str) -> PyResult<DMatrix<f64>> {
+    if mat.len() != nrows || mat[0].len() != ncols {
+        return Err(PyValueError::new_err(format!(
+            "{msg}; expected {nrows}x{ncols} but got {}x{}.",
+            mat.len(),
+            mat[0].len()
+        )));
+    }
+    return Ok(DMatrix::from_row_slice(nrows, ncols, &mat.concat()));
+}
+
 #[pymethods]
 #[allow(non_snake_case)]
 impl PyILQRSolver {
@@ -40,42 +51,32 @@ impl PyILQRSolver {
         let Qf = Qf.extract::<Vec<Vec<f64>>>()?;
         let R = R.extract::<Vec<Vec<f64>>>()?;
 
-        if Q.len() != state_dim || Q[0].len() != state_dim {
-            return Err(PyValueError::new_err(format!(
-                "Invalid state cost matrix dimension; expected {state_dim}x{state_dim} but got {}x{}.",
-                Q.len(),
-                Q[0].len()
-            )));
-        }
+        let Q = check_mat(
+            Q,
+            state_dim,
+            state_dim,
+            "Invalid state cost matrix dimension",
+        )?;
 
-        if Qf.len() != state_dim || Qf[0].len() != state_dim {
-            return Err(PyValueError::new_err(format!(
-                "Invalid final state cost matrix dimension; expected {state_dim}x{state_dim} but got {}x{}.",
-                Qf.len(),
-                Qf[0].len()
-            )));
-        }
-
-        if R.len() != control_dim || R[0].len() != control_dim {
-            return Err(PyValueError::new_err(format!(
-                "Invalid control cost matrix dimension; expected {control_dim}x{control_dim} but got {}x{}.",
-                R.len(),
-                R[0].len()
-            )));
-        }
+        let Qf = check_mat(
+            Qf,
+            state_dim,
+            state_dim,
+            "Invalid final state cost matrix dimension",
+        )?;
+        let R = check_mat(
+            R,
+            control_dim,
+            control_dim,
+            "Invalid control cost matrix dimension",
+        )?;
 
         Ok(Self {
-            solver: ILQRSolver::new(
-                state_dim,
-                control_dim,
-                DMatrix::from_row_slice(Q.len(), Q[0].len(), &Q.concat()),
-                DMatrix::from_row_slice(Qf.len(), Qf[0].len(), &Qf.concat()),
-                DMatrix::from_row_slice(R.len(), R[0].len(), &R.concat()),
-            ),
+            solver: ILQRSolver::new(state_dim, control_dim, Q, Qf, R),
         })
     }
 
-    #[pyo3(signature = (x0, target, dynamics, time_steps, initialization=None, max_iterations=None, convergence_threshold=None, gradient_clip=None, verbose=None))]
+    #[pyo3(signature = (x0, target, dynamics, time_steps, jacobians=None, initialization=None, max_iterations=None, convergence_threshold=None, gradient_clip=None, verbose=None))]
     fn solve(
         &self,
         py: Python<'_>,
@@ -83,6 +84,7 @@ impl PyILQRSolver {
         target: Bound<PyAny>,
         dynamics: Bound<'_, PyAny>,
         time_steps: usize,
+        jacobians: Option<Bound<'_, PyAny>>,
         initialization: Option<f64>,
         max_iterations: Option<usize>,
         convergence_threshold: Option<f64>,
@@ -127,20 +129,54 @@ impl PyILQRSolver {
         let x0 = DVector::from_row_slice(&x0);
         let target = DVector::from_row_slice(&target);
 
+        let dyn_f = |x: &[f64], u: &[f64]| {
+            Ok(dynamics
+                .call1((x.to_pyarray(py), u.to_pyarray(py)))?
+                .extract::<Vec<f64>>()?
+                .into())
+        };
+
+        let jac_f = if let Some(f) = &jacobians {
+            Some(|x: &[f64], u: &[f64]| {
+                f.call1((x.to_pyarray(py), u.to_pyarray(py)))
+                    .and_then(|res| {
+                        res.extract::<(Vec<Vec<f64>>, Vec<Vec<f64>>)>().and_then(
+                            |(jac_x, jac_u)| {
+                                let mat_j_x = check_mat(
+                                    jac_x,
+                                    self.solver.state_dim,
+                                    self.solver.state_dim,
+                                    "Invalid Jacobian size",
+                                );
+                                let mat_j_u = check_mat(
+                                    jac_u,
+                                    self.solver.state_dim,
+                                    self.solver.control_dim,
+                                    "Invalid Jacobian size",
+                                );
+
+                                match (mat_j_x, mat_j_u) {
+                                    (Ok(mat_j_x), Ok(mat_j_u)) => Ok((mat_j_x, mat_j_u)),
+                                    (Err(l), _) | (_, Err(l)) => Err(l),
+                                }
+                            },
+                        )
+                    })
+            })
+        } else {
+            None
+        };
+
         // Solve the problem
         let us = self.solver.solve(
             x0,
             target,
-            |x, u| {
-                Ok(dynamics
-                    .call1((x.to_pyarray(py), u.to_pyarray(py)))?
-                    .extract::<Vec<f64>>()?
-                    .into())
-            },
+            dyn_f,
             time_steps,
             initialization,
             max_iterations,
             convergence_threshold,
+            jac_f,
             gradient_clip,
             verbose,
         )?;

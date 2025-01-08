@@ -11,6 +11,8 @@ pub enum ILQRError<E> {
     DynamicsError(E),
 }
 
+type ILQRResult<T, E> = Result<T, ILQRError<E>>;
+
 #[allow(non_snake_case)]
 #[pyclass]
 #[derive(Debug)]
@@ -32,8 +34,8 @@ impl ILQRSolver {
     ///
     /// * `state_dim` - Dimension of the state space
     /// * `control_dim` - Dimension of the control space
-    /// * `dynamics` - Compute the next state given the current state `x` and control `u`
     /// * `Q` - State cost matrix
+    /// * `Qf` - Final state cost matrix
     /// * `R` - Control cost matrix
     #[allow(non_snake_case)]
     pub fn new(
@@ -60,12 +62,21 @@ impl ILQRSolver {
     /// * `u` - The control
     ///
     /// Returns: `(A, B)` where A = ∂f/∂x and B = ∂f/∂u at `(x, u)`
-    fn jacobians<E>(
+    fn jacobians<E, D, J>(
         &self,
-        f: impl Fn(&[f64], &[f64]) -> Result<DVector<f64>, E>,
         x: DVector<f64>,
         u: DVector<f64>,
-    ) -> Result<(DMatrix<f64>, DMatrix<f64>), ILQRError<E>> {
+        dynamics: &D,
+        jac: &Option<J>,
+    ) -> ILQRResult<(DMatrix<f64>, DMatrix<f64>), E>
+    where
+        D: Fn(&[f64], &[f64]) -> Result<DVector<f64>, E>,
+        J: Fn(&[f64], &[f64]) -> Result<(DMatrix<f64>, DMatrix<f64>), E>,
+    {
+        if let Some(j) = jac {
+            return j(x.as_slice(), u.as_slice()).map_err(ILQRError::DynamicsError);
+        }
+
         #[allow(non_snake_case)]
         let mut A = DMatrix::zeros(self.state_dim, self.state_dim);
         #[allow(non_snake_case)]
@@ -77,8 +88,10 @@ impl ILQRSolver {
             let mut xmdx = x.clone();
             xmdx[i] -= EPSILON;
 
-            let f_xpdx = f(xpdx.as_slice(), u.as_slice()).map_err(ILQRError::DynamicsError)?;
-            let f_xmdx = f(xmdx.as_slice(), u.as_slice()).map_err(ILQRError::DynamicsError)?;
+            let f_xpdx =
+                dynamics(xpdx.as_slice(), u.as_slice()).map_err(ILQRError::DynamicsError)?;
+            let f_xmdx =
+                dynamics(xmdx.as_slice(), u.as_slice()).map_err(ILQRError::DynamicsError)?;
 
             let df_dx = (f_xpdx - f_xmdx) / (2.0 * EPSILON);
             A.set_column(i, &df_dx);
@@ -90,8 +103,10 @@ impl ILQRSolver {
             let mut umdu = u.clone();
             umdu[i] -= EPSILON;
 
-            let f_updu = f(x.as_slice(), updu.as_slice()).map_err(ILQRError::DynamicsError)?;
-            let f_umdu = f(x.as_slice(), umdu.as_slice()).map_err(ILQRError::DynamicsError)?;
+            let f_updu =
+                dynamics(x.as_slice(), updu.as_slice()).map_err(ILQRError::DynamicsError)?;
+            let f_umdu =
+                dynamics(x.as_slice(), umdu.as_slice()).map_err(ILQRError::DynamicsError)?;
 
             let df_du = (f_updu - f_umdu) / (2.0 * EPSILON);
             B.set_column(i, &df_du);
@@ -107,13 +122,16 @@ impl ILQRSolver {
     /// * `target` - The target state
     ///
     /// Returns: a tuple `(xs, loss)` containing the states and loss
-    fn forward<E>(
+    fn forward<E, D>(
         &self,
         x: &DVector<f64>,
         us: &Vec<DVector<f64>>,
         target: &DVector<f64>,
-        dynamics: impl Fn(&[f64], &[f64]) -> Result<DVector<f64>, E>,
-    ) -> Result<(Vec<DVector<f64>>, f64), ILQRError<E>> {
+        dynamics: &D,
+    ) -> ILQRResult<(Vec<DVector<f64>>, f64), E>
+    where
+        D: Fn(&[f64], &[f64]) -> Result<DVector<f64>, E>,
+    {
         let mut x = x.clone();
         let mut xs = vec![x.clone()];
         let mut loss = 0.0;
@@ -141,13 +159,18 @@ impl ILQRSolver {
     ///
     /// Returns: On success, a tuple `(Ks, ds)` containing the control gains and the forcing gains.
     #[allow(non_snake_case)]
-    fn backward<E>(
+    fn backward<E, D, J>(
         &self,
         xs: &[DVector<f64>],
         us: &[DVector<f64>],
         target: &DVector<f64>,
-        dynamics: impl Fn(&[f64], &[f64]) -> Result<DVector<f64>, E>,
-    ) -> Result<(Vec<DMatrix<f64>>, Vec<DVector<f64>>), ILQRError<E>> {
+        dynamics: &D,
+        jac: &Option<J>,
+    ) -> ILQRResult<(Vec<DMatrix<f64>>, Vec<DVector<f64>>), E>
+    where
+        D: Fn(&[f64], &[f64]) -> Result<DVector<f64>, E>,
+        J: Fn(&[f64], &[f64]) -> Result<(DMatrix<f64>, DMatrix<f64>), E>,
+    {
         let mut Ks = vec![DMatrix::zeros(self.control_dim, self.state_dim); xs.len()];
         let mut ds = vec![DVector::zeros(self.control_dim); xs.len()];
 
@@ -158,7 +181,7 @@ impl ILQRSolver {
             let x = &xs[i];
             let u = &us[i];
 
-            let (A, B) = self.jacobians(&dynamics, x.clone(), u.clone())?;
+            let (A, B) = self.jacobians(x.clone(), u.clone(), &dynamics, &jac)?;
 
             let Qx = &self.Q * &(x - target) + (&s.transpose() * &A).transpose();
             let Qu = &self.R * u + (&s.transpose() * &B).transpose();
@@ -196,18 +219,23 @@ impl ILQRSolver {
     /// * `dynamics` - The dynamics function, that computes the next state given the current state `x` and control `u`
     ///
     /// Returns: On success, the sequence of controls
-    pub fn solve<E>(
+    pub fn solve<E, D, J>(
         &self,
         x0: DVector<f64>,
         target: DVector<f64>,
-        dynamics: impl Fn(&[f64], &[f64]) -> Result<DVector<f64>, E>,
+        dynamics: D,
         time_steps: usize,
         initialization: f64,
         max_iterations: usize,
         convergence_threshold: f64,
+        jac: Option<J>,
         gradient_clip: Option<f64>,
         verbose: bool,
-    ) -> Result<Vec<DVector<f64>>, ILQRError<E>> {
+    ) -> ILQRResult<Vec<DVector<f64>>, E>
+    where
+        D: Fn(&[f64], &[f64]) -> Result<DVector<f64>, E>,
+        J: Fn(&[f64], &[f64]) -> Result<(DMatrix<f64>, DMatrix<f64>), E>,
+    {
         // Initialize the trajectory
         let mut us = if initialization == 0.0 {
             // Initialize the controls to zeros
@@ -249,7 +277,7 @@ impl ILQRSolver {
 
             // Backward pass
             #[allow(non_snake_case)]
-            let (Ks, ds) = self.backward(&xs, &us, &target, &dynamics)?;
+            let (Ks, ds) = self.backward(&xs, &us, &target, &dynamics, &jac)?;
 
             // Update the controls
             let mut x = x0.clone();
@@ -325,6 +353,7 @@ mod tests {
             initialization,
             100,
             1e-2,
+            None::<fn(&[f64], &[f64]) -> Result<(DMatrix<f64>, DMatrix<f64>), ()>>,
             gradient_clip,
             false,
         );
