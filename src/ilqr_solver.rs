@@ -3,6 +3,7 @@ use std::time::Instant;
 use nalgebra::{DMatrix, DVector};
 use rand_distr::{Distribution, Normal};
 
+/// The epsilon used for finite differences
 const EPSILON: f64 = 1e-5;
 
 #[derive(Debug)]

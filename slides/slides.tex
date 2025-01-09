@@ -65,6 +65,7 @@
 \usepackage[justification=centering]{caption}
 \usepackage{csquotes}
 % \usepackage{multimedia}
+\usepackage{minted}
 
 
 \graphicspath{{./images/}}
@@ -214,8 +215,21 @@
     for some small $\varepsilon$ and the canonical basis $(e_i)$
 \end{frame}
 
-\begin{frame}{Computing the Jacobians}{Using Pinocchio}
+% \begin{frame}{Computing the Jacobians}{Using Pinocchio}
     
+% \end{frame}
+
+\begin{frame}{Tricks for practical convergence}
+    \begin{itemize}
+        \item \textbf{Gradient clipping:} limit the size of the control updates norm to $\alpha$ to avoid divergence
+        \begin{equation*}
+            \delta u_t = \frac{\delta u_i}{\max\left(1, \frac{\|\delta u_i\|}{\alpha}\right)}
+        \end{equation*}
+        \item \textbf{Gaussian initialization}: start with a small random control sequence instead of a zero sequence
+        \begin{equation*}
+            u_t \sim \mathcal{N}(0, \Sigma)
+        \end{equation*}
+    \end{itemize}
 \end{frame}
 
 \section{Our implementation}
@@ -223,13 +237,16 @@
     \begin{figure}
         \centering
         \renewcommand{\arraystretch}{1.4}
-        \begin{tabular}{p{5cm}p{4cm}p{4cm}}
-            \centering\textbf{Python}&\centering\textbf{C++}&\hspace{1.3cm}\textbf{Rust}\\
+        \begin{tabular}{p{5cm}p{3.5cm}p{4.5cm}}
+            \centering\textbf{Python}&\centering\textbf{C++}&\hspace{1.6cm}\textbf{Rust}\\
             \tabitem Easy to use&\tabitem Fast&\tabitem Fast\\
-            \tabitem Bindings for many libraries&\tabitem Not very funny&\tabitem Very funny\\
+            \tabitem Support for many libraries&\tabitem Not very funny&\tabitem Easy bindings for Python\\
             \tabitem Embarrassingly slow&&
         \end{tabular}
     \end{figure}
+    \vspace*{1cm}
+    \centering
+    Therefore, we chose to have a Rust core with Python bindings
     % \begin{minipage}[c]{0.3\linewidth}
     %     \textbf{Python}
     %     \begin{itemize}
@@ -253,11 +270,28 @@
 \end{frame}
 
 \begin{frame}{From Rust to Python, and the other way around}
-    
+    \begin{itemize}
+        \item Instantiate the solver in Python
+        \item Use Python libraries to define the dynamics
+        \item The Rust solver does the computations, and calls the Python \texttt{dynamics} function
+    \end{itemize}
 \end{frame}
 
-\begin{frame}{API Basic usage}
-    
+\begin{frame}[fragile]{API Basic usage}
+\begin{minted}{python}
+def dynamics(x, u):
+    return ... # simulator
+
+Q = np.zeros((state_dim, state_dim)) # state cost
+Qf = np.eye(state_dim) # final state cost
+R = 1e-5 * np.eye(control_dim) # control cost (minimize the energy)
+
+s = ilqr.ILQRSolver(state_dim, control_dim, Q, Qf, R)
+target = np.zeros(state_dim) # upright pendulum with no velocity
+output = s.solve(np.concatenate((q0, v0)), target, dynamics, time_steps=N, 
+                 gradient_clip=10.0,  # max norm of the gradient
+                 initialization=0.5)  # std of the Gaussian initialization
+\end{minted}
 \end{frame}
 
 \section{Demonstration time}
