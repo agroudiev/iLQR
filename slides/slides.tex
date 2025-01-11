@@ -1,4 +1,4 @@
-\documentclass[aspectratio=169]{beamer}
+\documentclass[aspectratio=169,draft]{beamer}
 \usetheme{Singapore}
 
 % add page numbers at the bottom of the slides
@@ -49,11 +49,6 @@
 \usepackage{amsthm}
 
 \usepackage{mathtools}
-\usepackage{wrapfig}
-% \usepackage{enumitem}
-% \usepackage{tikz}
-% \usepackage{xcolor}
-% \usetikzlibrary{positioning}
 \usepackage{booktabs}
 \newcommand{\tabitem}{~~\llap{\textbullet}~~}
 
@@ -64,14 +59,12 @@
 \usepackage{graphicx}
 \usepackage[justification=centering]{caption}
 \usepackage{csquotes}
-% \usepackage{multimedia}
 \usepackage{minted}
 
 
 \graphicspath{{./images/}}
 
 \addbibresource{../report/report.bib}
-% \renewcommand*{\bibfont}{\footnotesize}
 
 \AtBeginSection[]
 {
@@ -80,16 +73,6 @@
     \tableofcontents[currentsection]
   \end{frame}
 }
-
-
-\theoremstyle{definition}
-\newtheorem*{exemple}{Example}
-
-\renewcommand{\leq}{\leqslant}
-\renewcommand{\geq}{\geqslant}
-
-% \setbeamertemplate{itemize items}[circle]
-
 
 \title{\textbf{Implementation of an\\Iterative Linear Quadratic Regulator (iLQR)}}
 \author{Gabriel Desfrene\and Antoine Groudiev}
@@ -199,6 +182,8 @@
         \item \textbf{Forward rollout}: apply the gains to the controls to obtain a new trajectory
         \item Repeat until convergence
     \end{enumerate}
+    \vspace*{1cm}
+    For the complete derivations, see \cite{jackson2019ilqr} or \cite{harley2020ilqr}.
 \end{frame}
 
 \begin{frame}{Computing the Jacobians}{Finite differences method}
@@ -215,9 +200,15 @@
     for some small $\varepsilon$ and the canonical basis $(e_i)$
 \end{frame}
 
-% \begin{frame}{Computing the Jacobians}{Using Pinocchio}
-    
-% \end{frame}
+\begin{frame}[fragile]{Computing the Jacobians}{Using Pinocchio}
+\begin{minted}{python}
+# compute and store the Jacobians using Pinocchio
+pin.computeABADerivatives(model, data_sim, q, v, u)
+
+# retrieve the Jacobians and use them in the solver
+data_sim.ddq_dq, data_sim.ddq_dv, data_sim.Minv
+\end{minted}
+\end{frame}
 
 \begin{frame}{Tricks for practical convergence}
     \begin{itemize}
@@ -273,7 +264,8 @@
     \begin{itemize}
         \item Instantiate the solver in Python
         \item Use Python libraries to define the dynamics
-        \item The Rust solver does the computations, and calls the Python \texttt{dynamics} function
+        \item The Rust solver does the computations, and calls the Python \texttt{dynamics} function and the Pinocchio functions for the Jacobians
+        \item Supports both methods for computing the Jacobians
     \end{itemize}
 \end{frame}
 
@@ -299,28 +291,10 @@ output = s.solve(np.concatenate((q0, v0)), target, dynamics, time_steps=N,
     \begin{center}
         \huge Demonstration time!
     \end{center}
-    % \begin{minipage}[c]{0.45\linewidth}
-    %     \begin{figure}
-    %         \centering
-    %         \includegraphics[width=0.7\linewidth]{pendulum.png}
-    %     \end{figure}
-    % \end{minipage}
-    % \hspace{0.25cm}
-    % \begin{minipage}[c]{0.45\linewidth}
-    %     \begin{figure}
-    %         \centering
-    %         \includegraphics[width=0.7\linewidth]{cartpole.png}
-    %     \end{figure}
-    % \end{minipage}
 \end{frame}
 
-% \begin{frame}
-%     \movie{placeholder box}{images/balanced-pendulum.mov}
-% \end{frame}
-
-
 \section{Conclusion}
-\begin{frame}[allowframebreaks]
+\begin{frame}{References}
     \nocite{*}
     \printbibliography
 \end{frame}
