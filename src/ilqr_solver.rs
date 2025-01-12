@@ -44,6 +44,7 @@ pub struct ILQROutput {
     pub it_taken: usize,
     pub cost: Vec<f64>,
     pub gradient_norm: Vec<f64>,
+    pub jac_time_taken: Vec<f64>,
 }
 
 pub enum ILQRStopThreshold {
@@ -90,19 +91,27 @@ impl ILQRSolver {
         u: DVector<f64>,
         dynamics: &D,
         jac: &Option<J>,
-    ) -> ILQRResult<(DMatrix<f64>, DMatrix<f64>), E>
+    ) -> ILQRResult<(DMatrix<f64>, DMatrix<f64>, f64), E>
     where
         D: Fn(&[f64], &[f64]) -> Result<DVector<f64>, E>,
         J: Fn(&[f64], &[f64]) -> Result<(DMatrix<f64>, DMatrix<f64>), E>,
     {
         if let Some(j) = jac {
-            return j(x.as_slice(), u.as_slice()).map_err(ILQRError::DynamicsError);
+            let beg: Instant = Instant::now();
+
+            let (jac_x, jac_u) = j(x.as_slice(), u.as_slice()).map_err(ILQRError::DynamicsError)?;
+
+            let end: Instant = Instant::now();
+
+            return Ok((jac_x, jac_u, (end - beg).as_secs_f64()));
         }
 
         #[allow(non_snake_case)]
         let mut A = DMatrix::zeros(self.state_dim, self.state_dim);
         #[allow(non_snake_case)]
         let mut B = DMatrix::zeros(self.state_dim, self.control_dim);
+
+        let beg: Instant = Instant::now();
 
         for i in 0..self.state_dim {
             let mut xpdx = x.clone();
@@ -133,8 +142,9 @@ impl ILQRSolver {
             let df_du = (f_updu - f_umdu) / (2.0 * EPSILON);
             B.set_column(i, &df_du);
         }
+        let end: Instant = Instant::now();
 
-        Ok((A, B))
+        Ok((A, B, (end - beg).as_secs_f64()))
     }
 
     /// Computes the LQR forward pass from a given state `x`, controls `us`, and a `target`
@@ -188,7 +198,7 @@ impl ILQRSolver {
         target: &DVector<f64>,
         dynamics: &D,
         jac: &Option<J>,
-    ) -> ILQRResult<(Vec<DMatrix<f64>>, Vec<DVector<f64>>), E>
+    ) -> ILQRResult<(Vec<DMatrix<f64>>, Vec<DVector<f64>>, f64), E>
     where
         D: Fn(&[f64], &[f64]) -> Result<DVector<f64>, E>,
         J: Fn(&[f64], &[f64]) -> Result<(DMatrix<f64>, DMatrix<f64>), E>,
@@ -199,11 +209,14 @@ impl ILQRSolver {
         let mut s = self.Qf.clone() * (xs.last().unwrap() - target);
         let mut S = self.Qf.clone();
 
+        let mut jac_time = 0.0;
+
         for i in (0..xs.len() - 1).rev() {
             let x = &xs[i];
             let u = &us[i];
 
-            let (A, B) = self.jacobians(x.clone(), u.clone(), &dynamics, &jac)?;
+            let (A, B, jac_timing) = self.jacobians(x.clone(), u.clone(), &dynamics, &jac)?;
+            jac_time += jac_timing;
 
             let Qx = &self.Q * &(x - target) + (&s.transpose() * &A).transpose();
             let Qu = &self.R * u + (&s.transpose() * &B).transpose();
@@ -231,7 +244,9 @@ impl ILQRSolver {
             S += Qux.transpose() * &Ks[i];
         }
 
-        Ok((Ks, ds))
+        let jac_avg_time = jac_time / us.len() as f64;
+
+        Ok((Ks, ds, jac_avg_time))
     }
 
     /// Solves the ILQR problem from a given initial state `x0` and target `target`
@@ -261,6 +276,7 @@ impl ILQRSolver {
         // Initialize cost and norm vectors
         let mut cost = Vec::new();
         let mut norm = Vec::new();
+        let mut jac_time = Vec::new();
 
         // Initialize the trajectory
         let mut us = if initialization == 0.0 {
@@ -305,7 +321,8 @@ impl ILQRSolver {
 
             // Backward pass
             #[allow(non_snake_case)]
-            let (Ks, ds) = self.backward(&xs, &us, &target, &dynamics, &jac)?;
+            let (Ks, ds, jac_timing) = self.backward(&xs, &us, &target, &dynamics, &jac)?;
+            jac_time.push(jac_timing);
 
             // Update the controls
             let mut x = x0.clone();
@@ -362,30 +379,35 @@ impl ILQRSolver {
             };
 
             if converged {
+                let end = Instant::now();
+
                 if verbose {
                     println!("==== Break: Converged ====");
                 }
                 return Ok(ILQROutput {
                     kind: OutputKind::Converged,
                     control: us,
-                    time_taken: (Instant::now() - beg).as_secs_f64(),
+                    time_taken: (end - beg).as_secs_f64(),
                     it_taken: iteration,
                     cost: cost,
                     gradient_norm: norm,
+                    jac_time_taken: jac_time,
                 });
             }
             if norm_i.is_nan() {
                 return Err(ILQRError::InstableProblem(iteration));
             }
         }
+        let end: Instant = Instant::now();
 
         return Ok(ILQROutput {
             kind: OutputKind::Partial,
             control: us,
-            time_taken: (Instant::now() - beg).as_secs_f64(),
+            time_taken: (end - beg).as_secs_f64(),
             it_taken: max_iterations,
             cost: cost,
             gradient_norm: norm,
+            jac_time_taken: jac_time,
         });
     }
 }

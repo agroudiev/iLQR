@@ -208,6 +208,7 @@ impl PyILQRSolver {
             output_struct.set_item("it_taken", us.it_taken)?;
             output_struct.set_item("gradient_norm", us.gradient_norm)?;
             output_struct.set_item("cost", us.cost)?;
+            output_struct.set_item("jac_time_taken", us.jac_time_taken)?;
 
             match us.kind {
                 OutputKind::Partial => output_struct.set_item("kind", "partial")?,
