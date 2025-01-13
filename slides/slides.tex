@@ -85,21 +85,21 @@
 \frame{\titlepage}
 
 \begin{frame}{Plan}
-   \tableofcontents
+    \tableofcontents
 \end{frame}
 
 \section{Problem statement}
 \begin{frame}{General formulation}
     \begin{itemize}
         \item Dynamics function:
-        \begin{equation*}
-            x_{t+1} = f(x_t, u_t)
-        \end{equation*}
+              \begin{equation*}
+                  x_{t+1} = f(x_t, u_t)
+              \end{equation*}
         \item Goal: minimize a quadratic cost function
         \item Cost function:
-        \begin{equation*}
-            J(u) = \sum_{t=0}^{T-1} \left(x_t^\top Q x_t + u_t^\top R u_t\right) + \frac{1}{2}(x_T-x^*)^\top Q_f (x_T-x^*)
-        \end{equation*}
+              \begin{equation*}
+                  J(u) = \sum_{t=0}^{T-1} \left(x_t^\top Q x_t + u_t^\top R u_t\right) + \frac{1}{2}(x_T-x^*)^\top Q_f (x_T-x^*)
+              \end{equation*}
         \item $Q$: state cost matrix
         \item $Q_f$: final state cost matrix
         \item $R$: control cost matrix
@@ -114,10 +114,10 @@
             \item Dynamics: physical laws (simulator)
             \item Target: $x=[0\:\:\:0]$
             \item Cost function:
-            \begin{equation*}
-                J(u) = \frac{1}{2}\left(\theta_f^2+\dot{\theta}_f^2\right) + \frac{1}{2}\int_0^T ru^2(t) \mathrm{d} t
-            \end{equation*}
-            corresponding to $Q_f = I_2$, $Q=0_2$, $R=rI_1$
+                  \begin{equation*}
+                      J(u) = \frac{1}{2}\left(\theta_f^2+\dot{\theta}_f^2\right) + \frac{1}{2}\int_0^T ru^2(t) \mathrm{d} t
+                  \end{equation*}
+                  corresponding to $Q_f = I_2$, $Q=0_2$, $R=rI_1$
         \end{itemize}
     \end{minipage}
     \hspace{0.25cm}
@@ -137,10 +137,10 @@
             \item Dynamics: physical laws (simulator)
             \item Target: $x=[0\:\:\:0\:\:\:0\:\:\:0]$
             \item Cost function:
-            \begin{equation*}
-                J(u) = \frac{1}{2}\left(\theta_f^2+\dot{\theta}_f^2 + y_f^2 + \dot{y}_f^2\right) + \frac{1}{2}\int_0^T ru^2(t) \mathrm{d} t
-            \end{equation*}
-            corresponding to $Q_f = I_4$, $Q=0_4$, $R=rI_1$
+                  \begin{equation*}
+                      J(u) = \frac{1}{2}\left(\theta_f^2+\dot{\theta}_f^2 + y_f^2 + \dot{y}_f^2\right) + \frac{1}{2}\int_0^T ru^2(t) \mathrm{d} t
+                  \end{equation*}
+                  corresponding to $Q_f = I_4$, $Q=0_4$, $R=rI_1$
         \end{itemize}
     \end{minipage}
     \hspace{0.25cm}
@@ -194,32 +194,41 @@
     \end{itemize}
     In a black box setting, we can use finite differences:
     \begin{align*}
-        [A_t]_i &\approx \frac{f(x_t+\varepsilon e_i, u_t)-f(x_t-\varepsilon e_i, u_t)}{2\varepsilon}\\
-        [B_t]_i &\approx \frac{f(x_t, u_t+\varepsilon e_i)-f(x_t, u_t-\varepsilon e_i)}{2\varepsilon}
+        [A_t]_i & \approx \frac{f(x_t+\varepsilon e_i, u_t)-f(x_t-\varepsilon e_i, u_t)}{2\varepsilon} \\
+        [B_t]_i & \approx \frac{f(x_t, u_t+\varepsilon e_i)-f(x_t, u_t-\varepsilon e_i)}{2\varepsilon}
     \end{align*}
     for some small $\varepsilon$ and the canonical basis $(e_i)$
 \end{frame}
 
 \begin{frame}[fragile]{Computing the Jacobians}{Using Pinocchio}
-\begin{minted}{python}
-# compute and store the Jacobians using Pinocchio
-pin.computeABADerivatives(model, data_sim, q, v, u)
+    \begin{minted}{python}
+# Jacobians of the Articulated-Body algorithm
+J1_q, J1_v, J1_u = pin.computeABADerivatives(model, data_sim, q, v, u)
 
-# retrieve the Jacobians and use them in the solver
-data_sim.ddq_dq, data_sim.ddq_dv, data_sim.Minv
-\end{minted}
+# compute the Jacobians of the integration on SE(...)
+J2_q, J2_v_2 = pin.dIntegrate(model, q, v_2 * dt)
+    \end{minted}
 \end{frame}
 
 \begin{frame}{Tricks for practical convergence}
     \begin{itemize}
-        \item \textbf{Gradient clipping:} limit the size of the control updates norm to $\alpha$ to avoid divergence
-        \begin{equation*}
-            \delta u_t = \frac{\delta u_i}{\max\left(1, \frac{\|\delta u_i\|}{\alpha}\right)}
-        \end{equation*}
+        \item \textbf{Gradient clipping}: limit the size of the control updates norm to $\alpha$ to avoid divergence
+              \begin{equation*}
+                  \delta u_t = \frac{\delta u_i}{\max\left(1, \frac{\|\delta u_i\|}{\alpha}\right)}
+              \end{equation*}
         \item \textbf{Gaussian initialization}: start with a small random control sequence instead of a zero sequence
-        \begin{equation*}
-            u_t \sim \mathcal{N}(0, \Sigma)
-        \end{equation*}
+              \begin{equation*}
+                  u_t \sim \mathcal{N}(0, \Sigma)
+              \end{equation*}
+        \item \textbf{Regularization based on Levenberg-Marquardt}: When inverting the $Q_{uu}$ matrix, add a dynamic regularization term $\mu > 0$ to ensure positive definiteness
+              \begin{equation*}
+                  Q_{uu} = U\Sigma U^{\mathrm{T}} \rightarrow Q_{uu}^{-1} = U\Sigma' U^{\mathrm{T}}
+                  \quad\text{with}\quad
+                  \Sigma' = \begin{cases}
+                      0                         & \text{if $\sigma_i\leqslant 0$} \\
+                      \dfrac{1}{\sigma_i + \mu} & \text{otherwize}
+                  \end{cases}
+              \end{equation*}
     \end{itemize}
 \end{frame}
 
@@ -229,10 +238,10 @@ data_sim.ddq_dq, data_sim.ddq_dv, data_sim.Minv
         \centering
         \renewcommand{\arraystretch}{1.4}
         \begin{tabular}{p{5cm}p{3.5cm}p{4.5cm}}
-            \centering\textbf{Python}&\centering\textbf{C++}&\hspace{1.6cm}\textbf{Rust}\\
-            \tabitem Easy to use&\tabitem Fast&\tabitem Fast\\
-            \tabitem Support for many libraries&\tabitem Not very funny&\tabitem Easy bindings for Python\\
-            \tabitem Embarrassingly slow&&
+            \centering\textbf{Python}           & \centering\textbf{C++}  & \hspace{1.6cm}\textbf{Rust}       \\
+            \tabitem Easy to use                & \tabitem Fast           & \tabitem Fast                     \\
+            \tabitem Support for many libraries & \tabitem Not very funny & \tabitem Easy bindings for Python \\
+            \tabitem Embarrassingly slow        &                         &
         \end{tabular}
     \end{figure}
     \vspace*{1cm}
@@ -270,7 +279,7 @@ data_sim.ddq_dq, data_sim.ddq_dv, data_sim.Minv
 \end{frame}
 
 \begin{frame}[fragile]{API Basic usage}
-\begin{minted}{python}
+    \begin{minted}{python}
 def dynamics(x, u):
     return ... # simulator
 
@@ -280,7 +289,7 @@ R = 1e-5 * np.eye(control_dim) # control cost (minimize the energy)
 
 s = ilqr.ILQRSolver(state_dim, control_dim, Q, Qf, R)
 target = np.zeros(state_dim) # upright pendulum with no velocity
-output = s.solve(np.concatenate((q0, v0)), target, dynamics, time_steps=N, 
+output = s.solve(np.concatenate((q0, v0)), target, dynamics, time_steps=N,
                  gradient_clip=10.0,  # max norm of the gradient
                  initialization=0.5)  # std of the Gaussian initialization
 \end{minted}
@@ -296,7 +305,7 @@ output = s.solve(np.concatenate((q0, v0)), target, dynamics, time_steps=N,
 \section{Conclusion}
 \begin{frame}{References}
     \nocite{*}
-    \printbibliography
+    \printbibliography{}
 \end{frame}
 
 \end{document}
