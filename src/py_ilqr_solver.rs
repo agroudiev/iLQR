@@ -77,7 +77,7 @@ impl PyILQRSolver {
         })
     }
 
-    #[pyo3(signature = (x0, target, dynamics, time_steps, jacobians=None, initialization=None, max_iterations=None, cost_threshold=None, gradient_threshold=None, gradient_clip=None, verbose=None, full_output=None))]
+    #[pyo3(signature = (x0, target, dynamics, time_steps, jacobians=None, initialization=None, max_iterations=None, cost_threshold=None, gradient_threshold=None, gradient_clip=None, regularize=None, verbose=None, full_output=None))]
     fn solve(
         &self,
         py: Python<'_>,
@@ -91,6 +91,7 @@ impl PyILQRSolver {
         cost_threshold: Option<f64>,
         gradient_threshold: Option<f64>,
         gradient_clip: Option<f64>,
+        regularize: Option<bool>,
         verbose: Option<bool>,
         full_output: Option<bool>,
     ) -> PyResult<Py<PyAny>> {
@@ -105,6 +106,7 @@ impl PyILQRSolver {
         let verbose = verbose.unwrap_or(VERBOSE);
         // let gradient_clip = gradient_clip.unwrap_or(GRADIENT_CLIP);
         let initialization = initialization.unwrap_or(INITIALIZATION);
+        let regularize = regularize.unwrap_or(false);
         let full_output = full_output.unwrap_or(false);
 
         // Check the input dimensions
@@ -187,6 +189,7 @@ impl PyILQRSolver {
                 threshold,
                 jac_f,
                 gradient_clip,
+                regularize,
                 verbose,
             )
             .map_err(|err| build_error(py, err))?;

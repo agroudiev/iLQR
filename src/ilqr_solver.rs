@@ -1,10 +1,19 @@
 use std::time::Instant;
 
-use nalgebra::{DMatrix, DVector};
+use nalgebra::{DMatrix, DVector, SymmetricEigen};
 use rand_distr::{Distribution, Normal};
 
 /// The epsilon used for finite differences
 const EPSILON: f64 = 1e-5;
+/// The epsilon used for eigendecomposition
+const EIGENDECOMP_EPSILON: f64 = 1e-5;
+
+/// Decrease and Increase factor of the regularisation term
+const REG_FACTOR: f64 = 2.0;
+/// Maximum value of the regularisation term
+const REG_MAX: f64 = 1e3;
+/// Minimum value of the regularisation term
+const REG_MIN: f64 = 1e-5;
 
 #[derive(Debug)]
 #[allow(non_snake_case)]
@@ -36,7 +45,7 @@ pub struct ILQRSolver {
     pub state_dim: usize,
     /// Dimension of the control space
     pub control_dim: usize,
-    /// State cost matrixhttps://doc.rust-lang.org/std/result/enum.Result.html#impl-Any-for-T
+    /// State cost matrix
     pub Q: DMatrix<f64>,
     /// Final state cost matrix
     pub Qf: DMatrix<f64>,
@@ -212,6 +221,8 @@ impl ILQRSolver {
         target: &DVector<f64>,
         dynamics: &D,
         jac: &Option<J>,
+        use_regulation: bool,
+        lamb: f64,
     ) -> ILQRResult<(Vec<DMatrix<f64>>, Vec<DVector<f64>>, f64), E>
     where
         D: Fn(&[f64], &[f64]) -> Result<DVector<f64>, E>,
@@ -239,13 +250,27 @@ impl ILQRSolver {
             let Quu = &self.R + B.transpose() * &S * &B;
             let Qux = &B.transpose() * &S * &A;
 
-            let Quu_inv = &Quu
-                .clone()
-                .try_inverse()
-                .map_or_else(|| Err(ILQRError::QUUNotInvertible), Ok)?;
+            let Quu_inv = if use_regulation {
+                let mut decomp = SymmetricEigen::try_new(Quu.clone(), EIGENDECOMP_EPSILON, 0)
+                    .map_or(Err(ILQRError::QUUNotInvertible), Ok)?;
 
-            Ks[i] = -Quu_inv * &Qux;
-            ds[i] = -Quu_inv * &Qu;
+                decomp.eigenvalues.apply(|x| {
+                    if *x <= 0.0 {
+                        *x = 0.0;
+                    } else {
+                        *x = 1.0 / (*x + lamb); // Inversion and regularization term
+                    }
+                });
+
+                decomp.recompose()
+            } else {
+                Quu.clone()
+                    .try_inverse()
+                    .map_or_else(|| Err(ILQRError::QUUNotInvertible), Ok)?
+            };
+
+            Ks[i] = -&Quu_inv * &Qux;
+            ds[i] = -&Quu_inv * &Qu;
 
             s = Qx;
             s += Ks[i].transpose() * &Quu * &ds[i];
@@ -281,6 +306,7 @@ impl ILQRSolver {
         convergence_threshold: ILQRStopThreshold,
         jac: Option<J>,
         gradient_clip: Option<f64>,
+        use_regulation: bool,
         verbose: bool,
     ) -> ILQRResult<ILQROutput, E>
     where
@@ -314,6 +340,9 @@ impl ILQRSolver {
 
         x_sim[0] = x0.clone();
 
+        let mut prev_cost: Option<f64> = None;
+        let mut reg_coef = 1.0; // dynamic regularisation term
+
         if verbose {
             println!("==== Starting iLQR ====");
             println!(
@@ -340,7 +369,8 @@ impl ILQRSolver {
 
             // Backward pass
             #[allow(non_snake_case)]
-            let (Ks, ds, jac_timing) = self.backward(&xs, &us, &target, &dynamics, &jac)?;
+            let (Ks, ds, jac_timing) =
+                self.backward(&xs, &us, &target, &dynamics, &jac, use_regulation, reg_coef)?;
             jac_time.push(jac_timing);
 
             // Update the controls
@@ -386,6 +416,15 @@ impl ILQRSolver {
             if verbose {
                 println!("Gradient norm: {norm_i}");
                 println!("Cost: {cost_i}");
+            }
+
+            if use_regulation {
+                if prev_cost.is_none() || cost_i < prev_cost.unwrap() {
+                    reg_coef = f64::max(reg_coef / REG_FACTOR, REG_MIN);
+                } else {
+                    reg_coef = f64::min(reg_coef * REG_FACTOR, REG_MAX);
+                }
+                prev_cost = Some(cost_i);
             }
 
             // Check for convergence
@@ -468,6 +507,7 @@ mod tests {
             ILQRStopThreshold::GradientNormThreshold(1e-2),
             None::<fn(&[f64], &[f64]) -> Result<(DMatrix<f64>, DMatrix<f64>), ()>>,
             gradient_clip,
+            false,
             false,
         );
     }
