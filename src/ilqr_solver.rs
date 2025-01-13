@@ -7,9 +7,23 @@ use rand_distr::{Distribution, Normal};
 const EPSILON: f64 = 1e-5;
 
 #[derive(Debug)]
+#[allow(non_snake_case)]
 pub enum ILQRError<E> {
     QUUNotInvertible,
-    InstableProblem(usize),
+    InstableProblem {
+        /// Iteration of the Nan occurrence
+        iteration: usize,
+        /// Last Control Sequence
+        control: Vec<DVector<f64>>,
+        /// Last State Sequence
+        out_state: Vec<DVector<f64>>,
+        /// Last Forward Pass
+        xs: Vec<DVector<f64>>,
+        /// Last Control Gains
+        Ks: Vec<DMatrix<f64>>,
+        /// Last Forcing Gains
+        ds: Vec<DVector<f64>>,
+    },
     DynamicsError(E),
 }
 
@@ -22,7 +36,7 @@ pub struct ILQRSolver {
     pub state_dim: usize,
     /// Dimension of the control space
     pub control_dim: usize,
-    /// State cost matrix
+    /// State cost matrixhttps://doc.rust-lang.org/std/result/enum.Result.html#impl-Any-for-T
     pub Q: DMatrix<f64>,
     /// Final state cost matrix
     pub Qf: DMatrix<f64>,
@@ -295,6 +309,11 @@ impl ILQRSolver {
             us
         };
 
+        let mut dus: Vec<DVector<f64>> = vec![DVector::zeros(self.control_dim); time_steps];
+        let mut x_sim: Vec<DVector<f64>> = vec![DVector::zeros(self.state_dim); time_steps + 1];
+
+        x_sim[0] = x0.clone();
+
         if verbose {
             println!("==== Starting iLQR ====");
             println!(
@@ -313,7 +332,7 @@ impl ILQRSolver {
                 println!("\n== Iteration: {iteration} ==");
             }
             // Forward pass
-            let (mut xs, loss) = self.forward(&x0, &us, &target, &dynamics)?;
+            let (xs, loss) = self.forward(&x0, &us, &target, &dynamics)?;
 
             if verbose {
                 println!("Loss: {loss}");
@@ -325,16 +344,13 @@ impl ILQRSolver {
             jac_time.push(jac_timing);
 
             // Update the controls
-            let mut x = x0.clone();
-            let mut dus: Vec<DVector<f64>> = vec![DVector::zeros(self.control_dim); time_steps];
-
             let mut cost_i = 0.0;
             for i in 0..time_steps {
                 // Do it at the beginning to compute the sum from 0 to N-1
-                cost_i += (&x.transpose() * &self.Q * &x).as_scalar()
+                cost_i += (&x_sim[i].transpose() * &self.Q * &x_sim[i]).as_scalar()
                     + (&us[i].transpose() * &self.R * &us[i]).as_scalar();
 
-                let mut du = &Ks[i] * (&x - &xs[i]) + &ds[i];
+                let mut du = &Ks[i] * (&x_sim[i] - &xs[i]) + &ds[i];
 
                 match gradient_clip {
                     // gradient clip `du` if its norm is greater than `gradient_clip`
@@ -350,11 +366,11 @@ impl ILQRSolver {
                 us[i] += &du;
                 dus[i] = du;
 
-                x = dynamics(x.as_slice(), us[i].as_slice()).map_err(ILQRError::DynamicsError)?;
-                xs[i] = x.clone();
+                x_sim[i + 1] = dynamics(x_sim[i].as_slice(), us[i].as_slice())
+                    .map_err(ILQRError::DynamicsError)?;
             }
             // Add the final terms of the cost
-            let x_diff = x - &target;
+            let x_diff = &x_sim[time_steps] - &target;
             cost_i += (x_diff.transpose() * &self.Qf * x_diff).as_scalar();
 
             // The squared norm is the sum of the square of all elements
@@ -394,8 +410,16 @@ impl ILQRSolver {
                     jac_time_taken: jac_time,
                 });
             }
+
             if norm_i.is_nan() {
-                return Err(ILQRError::InstableProblem(iteration));
+                return Err(ILQRError::InstableProblem {
+                    iteration,
+                    control: us,
+                    out_state: x_sim,
+                    xs,
+                    Ks,
+                    ds,
+                });
             }
         }
         let end: Instant = Instant::now();

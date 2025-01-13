@@ -1,8 +1,8 @@
-use crate::ilqr_solver::{ILQRError, ILQRSolver, ILQRStopThreshold, OutputKind};
+use crate::ilqr_solver::{ILQRSolver, ILQRStopThreshold, OutputKind};
+use crate::py_utils::{build_error, build_vector_list};
 use nalgebra::{DMatrix, DVector};
-use numpy::ndarray::Array2;
-use numpy::{IntoPyArray, ToPyArray};
-use pyo3::exceptions::{PyRuntimeError, PyValueError};
+use numpy::ToPyArray;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3::{pyclass, pymethods};
@@ -175,31 +175,23 @@ impl PyILQRSolver {
         };
 
         // Solve the problem
-        let us = self.solver.solve(
-            x0,
-            target,
-            dyn_f,
-            time_steps,
-            initialization,
-            max_iterations,
-            threshold,
-            jac_f,
-            gradient_clip,
-            verbose,
-        )?;
+        let us = self
+            .solver
+            .solve(
+                x0,
+                target,
+                dyn_f,
+                time_steps,
+                initialization,
+                max_iterations,
+                threshold,
+                jac_f,
+                gradient_clip,
+                verbose,
+            )
+            .map_err(|err| build_error(py, err))?;
 
-        // Flatten the data
-        let flat_data: Vec<f64> = us
-            .control
-            .into_iter()
-            .flat_map(|x| x.data.as_vec().clone())
-            .collect::<Vec<f64>>();
-
-        // And reshape it to expected size
-        let np_array = Array2::from_shape_vec((time_steps, self.solver.control_dim), flat_data)
-            .unwrap()
-            .into_pyarray(py)
-            .into_any();
+        let np_array = build_vector_list(us.control).to_pyarray(py).into_any();
 
         if full_output {
             let output_struct = PyDict::new(py);
@@ -223,16 +215,5 @@ impl PyILQRSolver {
 
     fn __repr__(&self) -> PyResult<String> {
         Ok(format!("{:?}", self.solver))
-    }
-}
-
-impl std::convert::From<ILQRError<PyErr>> for PyErr {
-    fn from(err: ILQRError<PyErr>) -> PyErr {
-        match err {
-            ILQRError::QUUNotInvertible => PyRuntimeError::new_err("The Quu matrix should be invertible."),
-            ILQRError::InstableProblem(iteration) =>
-                PyRuntimeError::new_err(format!("Instable problem - NaN detected in the control sequence. Choose a small gradient clipping value, or reduce the number of iterations. (iteration: {iteration})")),
-            ILQRError::DynamicsError(e) => e,
-        }
     }
 }
