@@ -1,4 +1,4 @@
-\documentclass[aspectratio=169,draft]{beamer}
+\documentclass[aspectratio=169]{beamer}
 \usetheme{Singapore}
 
 % add page numbers at the bottom of the slides
@@ -79,7 +79,7 @@
 
 \titlegraphic{\includegraphics[height=1.8cm]{./images/logo-ens-psl.png}}
 
-\date{January 14, 2025}
+\date{January 15, 2025}
 
 \begin{document}
 \frame{\titlepage}
@@ -239,9 +239,9 @@ J2_q, J2_v_2 = pin.dIntegrate(model, q, v_2 * dt)
         \renewcommand{\arraystretch}{1.4}
         \begin{tabular}{p{5cm}p{3.5cm}p{4.5cm}}
             \centering\textbf{Python}           & \centering\textbf{C++}  & \hspace{1.6cm}\textbf{Rust}       \\
-            \tabitem Easy to use                & \tabitem Fast           & \tabitem Fast                     \\
+            \tabitem Easy to use                & \tabitem "Fast"           & \tabitem "Fast"                     \\
             \tabitem Support for many libraries & \tabitem Not very funny & \tabitem Easy bindings for Python \\
-            \tabitem Embarrassingly slow        &                         &
+            \tabitem Embarrassingly slow        &                         & \tabitem Very funny
         \end{tabular}
     \end{figure}
     \vspace*{1cm}
@@ -302,7 +302,6 @@ output = s.solve(np.concatenate((q0, v0)), target, dynamics, time_steps=N,
     \end{center}
 \end{frame}
 
-\section{Conclusion}
 \begin{frame}{References}
     \nocite{*}
     \printbibliography{}
