@@ -2,7 +2,10 @@
 An implementation of the Iterative Linear Quadratic Regulator (iLQR) method to control nonlinear dynamical systems.
 
 ## Description
-This project was developed as part of the course "Introduction to Robotics" at the École Normale Supérieure (ENS) Paris.
+This project was developed as part of the course "Introduction to Robotics" at the École Normale Supérieure (ENS) Paris. The report of the project can be found [here](report/report.pdf).
+
+## Results
+
 
 ## Installation
 The use of [miniconda](https://docs.conda.io/en/latest/miniconda.html) is recommended to manage the dependencies. To install the dependencies, run the following command:
