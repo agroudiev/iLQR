@@ -6,6 +6,11 @@ This project was developed as part of the course "Introduction to Robotics" at t
 
 ## Results
 
+https://github.com/user-attachments/assets/ed4edef0-6e21-4d81-9174-b4a7326108af
+
+https://github.com/user-attachments/assets/6624fd11-51b0-4a54-8df9-0c984046a084
+
+
 
 ## Installation
 The use of [miniconda](https://docs.conda.io/en/latest/miniconda.html) is recommended to manage the dependencies. To install the dependencies, run the following command:
