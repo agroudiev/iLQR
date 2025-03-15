@@ -295,12 +295,13 @@ impl ILQRSolver {
     /// * `dynamics` - The dynamics function, that computes the next state given the current state `x` and control `u`
     ///
     /// Returns: On success, the sequence of controls
-    pub fn solve<E, D, J>(
+    pub fn solve<E, D, J, C>(
         &self,
         x0: DVector<f64>,
         target: DVector<f64>,
         dynamics: D,
         time_steps: usize,
+        callback: C,
         initialization: f64,
         max_iterations: usize,
         convergence_threshold: ILQRStopThreshold,
@@ -308,10 +309,12 @@ impl ILQRSolver {
         gradient_clip: Option<f64>,
         use_regulation: bool,
         verbose: bool,
+        warmstart: Option<Vec<DVector<f64>>>,
     ) -> ILQRResult<ILQROutput, E>
     where
         D: Fn(&[f64], &[f64]) -> Result<DVector<f64>, E>,
         J: Fn(&[f64], &[f64]) -> Result<(DMatrix<f64>, DMatrix<f64>), E>,
+        C: Fn(f64) -> (),
     {
         // Initialize cost and norm vectors
         let mut cost = Vec::new();
@@ -319,7 +322,11 @@ impl ILQRSolver {
         let mut jac_time = Vec::new();
 
         // Initialize the trajectory
-        let mut us = if initialization == 0.0 {
+        let mut us = if let Some(warmstart) = warmstart {
+            // Initialize the controls to the warmstart
+            warmstart
+        }
+        else if initialization == 0.0 {
             // Initialize the controls to zeros
             vec![DVector::zeros(self.control_dim); time_steps]
         } else {
@@ -412,6 +419,7 @@ impl ILQRSolver {
 
             cost.push(cost_i);
             norm.push(norm_i);
+            callback(cost_i);
 
             if verbose {
                 println!("Gradient norm: {norm_i}");
@@ -497,11 +505,14 @@ mod tests {
 
         let dynamics = |x: &[f64], _u: &[f64]| Ok::<DVector<f64>, ()>(DVector::from_row_slice(&x));
 
+        let callback = |_: f64| {};
+
         let _ = solver.solve(
             x0,
             target,
             dynamics,
             10,
+            callback,
             initialization,
             100,
             ILQRStopThreshold::GradientNormThreshold(1e-2),
@@ -509,6 +520,7 @@ mod tests {
             gradient_clip,
             false,
             false,
+            None
         );
     }
 

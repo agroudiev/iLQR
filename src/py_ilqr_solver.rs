@@ -77,7 +77,7 @@ impl PyILQRSolver {
         })
     }
 
-    #[pyo3(signature = (x0, target, dynamics, time_steps, jacobians=None, initialization=None, max_iterations=None, cost_threshold=None, gradient_threshold=None, gradient_clip=None, regularize=None, verbose=None, full_output=None))]
+    #[pyo3(signature = (x0, target, dynamics, time_steps, callback, jacobians=None, initialization=None, max_iterations=None, cost_threshold=None, gradient_threshold=None, gradient_clip=None, regularize=None, verbose=None, full_output=None, warmstart=None))]
     fn solve(
         &self,
         py: Python<'_>,
@@ -85,6 +85,7 @@ impl PyILQRSolver {
         target: Bound<PyAny>,
         dynamics: Bound<'_, PyAny>,
         time_steps: usize,
+        callback: Bound<'_, PyAny>,
         jacobians: Option<Bound<'_, PyAny>>,
         initialization: Option<f64>,
         max_iterations: Option<usize>,
@@ -94,6 +95,7 @@ impl PyILQRSolver {
         regularize: Option<bool>,
         verbose: Option<bool>,
         full_output: Option<bool>,
+        warmstart: Option<Bound<PyAny>>
     ) -> PyResult<Py<PyAny>> {
         let x0 = x0.extract::<Vec<f64>>()?;
         let target = target.extract::<Vec<f64>>()?;
@@ -105,6 +107,20 @@ impl PyILQRSolver {
         );
         let verbose = verbose.unwrap_or(VERBOSE);
         // let gradient_clip = gradient_clip.unwrap_or(GRADIENT_CLIP);
+
+        let warmstart = match warmstart {
+            Some(warmstart) => {
+                let warmstart = warmstart.extract::<Vec<f64>>()?;
+                assert_eq!(warmstart.len(), self.solver.control_dim * time_steps);
+                let mut warmstart_vec = vec![];
+
+                for chunk in warmstart.chunks(self.solver.control_dim) {
+                    warmstart_vec.push(DVector::from_row_slice(chunk));
+                }
+                Some(warmstart_vec)
+            },
+            None => None
+        };
         let initialization = initialization.unwrap_or(INITIALIZATION);
         let regularize = regularize.unwrap_or(false);
         let full_output = full_output.unwrap_or(false);
@@ -143,6 +159,10 @@ impl PyILQRSolver {
                 .call1((x.to_pyarray(py), u.to_pyarray(py)))?
                 .extract::<Vec<f64>>()?
                 .into())
+        };
+
+        let callback = |cost: f64| {
+            let _ = callback.call1((cost,));
         };
 
         let jac_f = if let Some(f) = &jacobians {
@@ -184,6 +204,7 @@ impl PyILQRSolver {
                 target,
                 dyn_f,
                 time_steps,
+                callback,
                 initialization,
                 max_iterations,
                 threshold,
@@ -191,6 +212,7 @@ impl PyILQRSolver {
                 gradient_clip,
                 regularize,
                 verbose,
+                warmstart
             )
             .map_err(|err| build_error(py, err))?;
 
